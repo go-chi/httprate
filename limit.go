@@ -1,4 +1,4 @@
-package middleware
+package httprate
 
 import (
 	"net"
@@ -25,7 +25,7 @@ func Limit(r, b int) func(next http.Handler) http.Handler {
 
 // LimitIP allows requests up to rate r and permits bursts of at most b tokens per IP.
 func LimitIP(r, b int) func(next http.Handler) http.Handler {
-	return newIpLimiter(r, b).Handler
+	return newIPLimiter(r, b).Handler
 }
 
 type ipLimiter struct {
@@ -35,7 +35,7 @@ type ipLimiter struct {
 	sync.RWMutex
 }
 
-func newIpLimiter(r, b int) *ipLimiter {
+func newIPLimiter(r, b int) *ipLimiter {
 	return &ipLimiter{limiters: make(map[string]*rate.Limiter), r: r, b: b}
 }
 

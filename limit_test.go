@@ -1,4 +1,4 @@
-package middleware
+package httprate
 
 import (
 	"net/http"
