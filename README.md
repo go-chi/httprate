@@ -1,5 +1,7 @@
 # httprate
 
+![](https://github.com/go-chi/stampede/workflows/build/badge.svg?branch=master)
+
 net/http request rate limiter.
 
 
@@ -9,16 +11,16 @@ net/http request rate limiter.
 package main
 
 import (
-	"net/http"
+  "net/http"
 
-	"github.com/go-chi/chi"
-	"github.com/go-chi/chi/middleware"
-	"github.com/go-chi/httprate"
+  "github.com/go-chi/chi"
+  "github.com/go-chi/chi/middleware"
+  "github.com/go-chi/httprate"
 )
 
 func main() {
-	r := chi.NewRouter()
-	r.Use(middleware.Logger)
+  r := chi.NewRouter()
+  r.Use(middleware.Logger)
 
   // Enable httprate request limiter to 2 respects per second with burst of 2.
   //
@@ -37,11 +39,11 @@ func main() {
   //
   r.Use(httprate.LimitByIP(2, 2))
 
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("."))
-	})
+  r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+    w.Write([]byte("."))
+  })
 
-	http.ListenAndServe(":3333", r)
+  http.ListenAndServe(":3333", r)
 }
 ```
 

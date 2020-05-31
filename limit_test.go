@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/go-chi/chi"
 )
 
 func TestLimit(t *testing.T) {
@@ -28,13 +26,13 @@ func TestLimit(t *testing.T) {
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := chi.NewRouter()
-			r.Use(LimitAll(1, tt.b))
-			r.Get("/", func(w http.ResponseWriter, r *http.Request) {})
+			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+			router := LimitAll(1, tt.b)(h)
+
 			for _, code := range tt.respCodes {
 				req := httptest.NewRequest("GET", "/", nil)
 				recorder := httptest.NewRecorder()
-				r.ServeHTTP(recorder, req)
+				router.ServeHTTP(recorder, req)
 				if respCode := recorder.Result().StatusCode; respCode != code {
 					t.Errorf("resp.StatusCode(%v) = %v, want %v", i, respCode, code)
 				}
@@ -66,14 +64,14 @@ func TestLimitIP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := chi.NewRouter()
-			r.Use(LimitByIP(1, tt.b))
-			r.Get("/", func(w http.ResponseWriter, r *http.Request) {})
+			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+			router := LimitByIP(1, tt.b)(h)
+
 			for i, code := range tt.respCodes {
 				req := httptest.NewRequest("GET", "/", nil)
 				req.RemoteAddr = tt.reqIp[i]
 				recorder := httptest.NewRecorder()
-				r.ServeHTTP(recorder, req)
+				router.ServeHTTP(recorder, req)
 				if respCode := recorder.Result().StatusCode; respCode != code {
 					t.Errorf("resp.StatusCode(%v) = %v, want %v", i, respCode, code)
 				}
