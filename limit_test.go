@@ -29,7 +29,7 @@ func TestLimit(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := chi.NewRouter()
-			r.Use(Limit(1, tt.b))
+			r.Use(LimitAll(1, tt.b))
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) {})
 			for _, code := range tt.respCodes {
 				req := httptest.NewRequest("GET", "/", nil)
@@ -67,7 +67,7 @@ func TestLimitIP(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := chi.NewRouter()
-			r.Use(LimitIP(1, tt.b))
+			r.Use(LimitByIP(1, tt.b))
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) {})
 			for i, code := range tt.respCodes {
 				req := httptest.NewRequest("GET", "/", nil)

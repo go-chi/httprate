@@ -8,65 +8,77 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Limit allows requests up to rate r and permits bursts of at most b tokens.
-func Limit(r, b int) func(next http.Handler) http.Handler {
-	limiter := rate.NewLimiter(rate.Limit(r), b)
+// Limit allows requests up to rate r and permits bursts of at most b tokens for
+// clientID string for incoming http request.
+func Limit(rps, burst int, clientID ClientIDFunc) func(next http.Handler) http.Handler {
+	rateLimiter := newRateLimiter(rps, burst)
+
 	return func(next http.Handler) http.Handler {
-		fn := func(w http.ResponseWriter, r *http.Request) {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			k, err := clientID(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusPreconditionRequired)
+				return
+			}
+
+			limiter := rateLimiter.getLimiter(k)
 			if !limiter.Allow() {
 				http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
 				return
 			}
+
 			next.ServeHTTP(w, r)
-		}
-		return http.HandlerFunc(fn)
+		})
 	}
 }
 
-// LimitIP allows requests up to rate r and permits bursts of at most b tokens per IP.
-func LimitIP(r, b int) func(next http.Handler) http.Handler {
-	return newIPLimiter(r, b).Handler
+type ClientIDFunc func(r *http.Request) (string, error)
+
+func LimitByIP(rps, burst int) func(next http.Handler) http.Handler {
+	ipKeyFn := func(r *http.Request) (string, error) {
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+		return ip, nil
+	}
+	return Limit(rps, burst, ipKeyFn)
 }
 
-type ipLimiter struct {
+func LimitAll(rps, burst int) func(next http.Handler) http.Handler {
+	keyFn := func(r *http.Request) (string, error) {
+		return "*", nil
+	}
+	return Limit(rps, burst, keyFn)
+}
+
+type rateLimiter struct {
 	limiters map[string]*rate.Limiter
 	r        int // limiter rate
 	b        int // limiter bucket size
 	sync.RWMutex
 }
 
-func newIPLimiter(r, b int) *ipLimiter {
-	return &ipLimiter{limiters: make(map[string]*rate.Limiter), r: r, b: b}
+func newRateLimiter(r, b int) *rateLimiter {
+	return &rateLimiter{
+		limiters: make(map[string]*rate.Limiter),
+		r:        r,
+		b:        b,
+	}
 }
 
-func (l *ipLimiter) getLimiter(key string) *rate.Limiter {
+func (l *rateLimiter) getLimiter(key string) *rate.Limiter {
 	l.RLock()
-	ipLimiter, ok := l.limiters[key]
+	limiter, ok := l.limiters[key]
 	l.RUnlock()
 	if ok {
-		return ipLimiter
+		return limiter
 	}
 	l.Lock()
-	if ipLimiter, ok = l.limiters[key]; !ok {
-		ipLimiter = rate.NewLimiter(rate.Limit(l.r), l.b)
-		l.limiters[key] = ipLimiter
+	if limiter, ok = l.limiters[key]; !ok {
+		limiter = rate.NewLimiter(rate.Limit(l.r), l.b)
+		l.limiters[key] = limiter
 	}
 	l.Unlock()
-	return ipLimiter
-}
-
-func (l *ipLimiter) Handler(next http.Handler) http.Handler {
-	fn := func(w http.ResponseWriter, r *http.Request) {
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			ip = r.RemoteAddr
-		}
-		ipLimiter := l.getLimiter(ip)
-		if !ipLimiter.Allow() {
-			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
-			return
-		}
-		next.ServeHTTP(w, r)
-	}
-	return http.HandlerFunc(fn)
+	return limiter
 }
