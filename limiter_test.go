@@ -1,33 +1,39 @@
-package httprate
+package httprate_test
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/go-chi/httprate"
 )
 
 func TestLimit(t *testing.T) {
 	type test struct {
-		name      string
-		b         int
-		respCodes []int
+		name          string
+		requestsLimit int
+		windowLength  time.Duration
+		respCodes     []int
 	}
 	tests := []test{
 		{
-			name:      "no-block",
-			b:         3,
-			respCodes: []int{200, 200, 200},
+			name:          "no-block",
+			requestsLimit: 3,
+			windowLength:  4 * time.Second,
+			respCodes:     []int{200, 200, 200},
 		},
 		{
-			name:      "block",
-			b:         3,
-			respCodes: []int{200, 200, 200, 429},
+			name:          "block",
+			requestsLimit: 3,
+			windowLength:  2 * time.Second,
+			respCodes:     []int{200, 200, 200, 429},
 		},
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-			router := LimitAll(1, tt.b)(h)
+			router := httprate.LimitAll(tt.requestsLimit, tt.windowLength)(h)
 
 			for _, code := range tt.respCodes {
 				req := httptest.NewRequest("GET", "/", nil)
@@ -43,29 +49,32 @@ func TestLimit(t *testing.T) {
 
 func TestLimitIP(t *testing.T) {
 	type test struct {
-		name      string
-		b         int
-		reqIp     []string
-		respCodes []int
+		name          string
+		requestsLimit int
+		windowLength  time.Duration
+		reqIp         []string
+		respCodes     []int
 	}
 	tests := []test{
 		{
-			name:      "no-block",
-			b:         1,
-			reqIp:     []string{"1.1.1.1:100", "2.2.2.2:200"},
-			respCodes: []int{200, 200},
+			name:          "no-block",
+			requestsLimit: 3,
+			windowLength:  2 * time.Second,
+			reqIp:         []string{"1.1.1.1:100", "2.2.2.2:200"},
+			respCodes:     []int{200, 200},
 		},
 		{
-			name:      "block-ip",
-			b:         1,
-			reqIp:     []string{"1.1.1.1:100", "1.1.1.1:100", "2.2.2.2:200"},
-			respCodes: []int{200, 429, 200},
+			name:          "block-ip",
+			requestsLimit: 1,
+			windowLength:  2 * time.Second,
+			reqIp:         []string{"1.1.1.1:100", "1.1.1.1:100", "2.2.2.2:200"},
+			respCodes:     []int{200, 429, 200},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-			router := LimitByIP(1, tt.b)(h)
+			router := httprate.LimitByIP(tt.requestsLimit, tt.windowLength)(h)
 
 			for i, code := range tt.respCodes {
 				req := httptest.NewRequest("GET", "/", nil)
