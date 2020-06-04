@@ -22,10 +22,24 @@ func LimitByIP(requestLimit int, windowLength time.Duration) func(next http.Hand
 }
 
 func KeyByIP(r *http.Request) (string, error) {
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		ip = r.RemoteAddr
+	var ip string
+
+	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
+		ip = xrip
+	} else if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		i := strings.Index(xff, ", ")
+		if i == -1 {
+			i = len(xff)
+		}
+		ip = xff[:i]
+	} else {
+		var err error
+		ip, _, err = net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
 	}
+
 	return ip, nil
 }
 
