@@ -16,6 +16,14 @@ type LimitCounter interface {
 }
 
 func NewRateLimiter(requestLimit int, windowLength time.Duration, counter LimitCounter, keyFuncs ...KeyFunc) *rateLimiter {
+	return newRateLimiter(requestLimit, windowLength, counter, nil, keyFuncs...)
+}
+
+func NewCustomRateLimiter(requestLimit int, windowLength time.Duration, counter LimitCounter, onLimit OnLimitFunc, keyFuncs ...KeyFunc) *rateLimiter {
+	return newRateLimiter(requestLimit, windowLength, counter, onLimit, keyFuncs...)
+}
+
+func newRateLimiter(requestLimit int, windowLength time.Duration, counter LimitCounter, onLimit OnLimitFunc, keyFuncs ...KeyFunc) *rateLimiter {
 	var keyFn KeyFunc
 	if len(keyFuncs) == 0 {
 		keyFn = func(r *http.Request) (string, error) {
@@ -32,11 +40,18 @@ func NewRateLimiter(requestLimit int, windowLength time.Duration, counter LimitC
 		}
 	}
 
+	if onLimit == nil {
+		onLimit = func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+		}
+	}
+
 	return &rateLimiter{
-		requestLimit: requestLimit,
-		windowLength: windowLength,
-		keyFn:        keyFn,
-		limitCounter: counter,
+		requestLimit:   requestLimit,
+		windowLength:   windowLength,
+		keyFn:          keyFn,
+		limitCounter:   counter,
+		onRequestLimit: onLimit,
 	}
 }
 
@@ -48,10 +63,11 @@ func LimitCounterKey(key string, window time.Time) uint64 {
 }
 
 type rateLimiter struct {
-	requestLimit int
-	windowLength time.Duration
-	keyFn        KeyFunc
-	limitCounter LimitCounter
+	requestLimit   int
+	windowLength   time.Duration
+	keyFn          KeyFunc
+	limitCounter   LimitCounter
+	onRequestLimit OnLimitFunc
 }
 
 func (r *rateLimiter) Counter() LimitCounter {
@@ -103,7 +119,7 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		}
 
 		if nrate >= l.requestLimit {
-			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+			l.onRequestLimit(w, r)
 			return
 		}
 

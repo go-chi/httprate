@@ -11,7 +11,12 @@ func Limit(requestLimit int, windowLength time.Duration, keyFuncs ...KeyFunc) fu
 	return NewRateLimiter(requestLimit, windowLength, nil, keyFuncs...).Handler
 }
 
+func LimitCustom(requestLimit int, windowLength time.Duration, onLimit OnLimitFunc, keyFuncs ...KeyFunc) func(next http.Handler) http.Handler {
+	return NewCustomRateLimiter(requestLimit, windowLength, nil, onLimit, keyFuncs...).Handler
+}
+
 type KeyFunc func(r *http.Request) (string, error)
+type OnLimitFunc func(w http.ResponseWriter, r *http.Request)
 
 func LimitAll(requestLimit int, windowLength time.Duration) func(next http.Handler) http.Handler {
 	return Limit(requestLimit, windowLength)
