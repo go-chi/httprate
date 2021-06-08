@@ -42,6 +42,7 @@ func newRateLimiter(requestLimit int, windowLength time.Duration, counter LimitC
 
 	if onLimit == nil {
 		onLimit = func(w http.ResponseWriter, r *http.Request) {
+      w.Header().Set("Retry-After", fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
 			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
 		}
 	}
