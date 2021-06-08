@@ -15,45 +15,40 @@ type LimitCounter interface {
 	Get(key string, previousWindow, currentWindow time.Time) (int, int, error)
 }
 
-func NewRateLimiter(requestLimit int, windowLength time.Duration, counter LimitCounter, keyFuncs ...KeyFunc) *rateLimiter {
-	return newRateLimiter(requestLimit, windowLength, counter, nil, keyFuncs...)
+func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Option) *rateLimiter {
+	return newRateLimiter(requestLimit, windowLength, options...)
 }
 
-func NewCustomRateLimiter(requestLimit int, windowLength time.Duration, counter LimitCounter, onLimit OnLimitFunc, keyFuncs ...KeyFunc) *rateLimiter {
-	return newRateLimiter(requestLimit, windowLength, counter, onLimit, keyFuncs...)
-}
-
-func newRateLimiter(requestLimit int, windowLength time.Duration, counter LimitCounter, onLimit OnLimitFunc, keyFuncs ...KeyFunc) *rateLimiter {
-	var keyFn KeyFunc
-	if len(keyFuncs) == 0 {
-		keyFn = func(r *http.Request) (string, error) {
-			return "*", nil
-		}
-	} else {
-		keyFn = composedKeyFunc(keyFuncs...)
+func newRateLimiter(requestLimit int, windowLength time.Duration, options ...Option) *rateLimiter {
+	rl := &rateLimiter{
+		requestLimit: requestLimit,
+		windowLength: windowLength,
 	}
 
-	if counter == nil {
-		counter = &localCounter{
+	for _, opt := range options {
+		opt(rl)
+	}
+
+	if rl.keyFn == nil {
+		rl.keyFn = func(r *http.Request) (string, error) {
+			return "*", nil
+		}
+	}
+
+	if rl.limitCounter == nil {
+		rl.limitCounter = &localCounter{
 			counters:     make(map[uint64]*count),
 			windowLength: windowLength,
 		}
 	}
 
-	if onLimit == nil {
-		onLimit = func(w http.ResponseWriter, r *http.Request) {
-      w.Header().Set("Retry-After", fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
+	if rl.onRequestLimit == nil {
+		rl.onRequestLimit = func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
 		}
 	}
 
-	return &rateLimiter{
-		requestLimit:   requestLimit,
-		windowLength:   windowLength,
-		keyFn:          keyFn,
-		limitCounter:   counter,
-		onRequestLimit: onLimit,
-	}
+	return rl
 }
 
 func LimitCounterKey(key string, window time.Time) uint64 {
@@ -68,7 +63,7 @@ type rateLimiter struct {
 	windowLength   time.Duration
 	keyFn          KeyFunc
 	limitCounter   LimitCounter
-	onRequestLimit OnLimitFunc
+	onRequestLimit http.HandlerFunc
 }
 
 func (r *rateLimiter) Counter() LimitCounter {
@@ -120,6 +115,7 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		}
 
 		if nrate >= l.requestLimit {
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
 			l.onRequestLimit(w, r)
 			return
 		}
