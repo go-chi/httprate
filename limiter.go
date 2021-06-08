@@ -103,6 +103,7 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		}
 
 		if nrate >= l.requestLimit {
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
 			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
 			return
 		}
