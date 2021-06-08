@@ -91,9 +91,13 @@ func TestLimitHandler(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-			router := httprate.Limit(tt.requestsLimit, tt.windowLength, httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-				http.Error(w, "Wow Slow Down Kiddo", 429)
-			}))(h)
+			router := httprate.Limit(
+				tt.requestsLimit,
+				tt.windowLength,
+				httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, "Wow Slow Down Kiddo", 429)
+				}),
+			)(h)
 
 			for _, expected := range tt.responses {
 				req := httptest.NewRequest("GET", "/", nil)
