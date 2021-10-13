@@ -25,7 +25,9 @@ func LimitByIP(requestLimit int, windowLength time.Duration) func(next http.Hand
 func KeyByIP(r *http.Request) (string, error) {
 	var ip string
 
-	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
+	if tcip := r.Header.Get("True-Client-IP"); tcip != "" {
+		ip = tcip
+	} else if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
 		ip = xrip
 	} else if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		i := strings.Index(xff, ", ")

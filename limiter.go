@@ -188,6 +188,7 @@ func (c *localCounter) evict() {
 	if time.Since(c.lastEvict) < d {
 		return
 	}
+	c.lastEvict = time.Now()
 
 	for k, v := range c.counters {
 		if time.Since(v.updatedAt) >= d {
