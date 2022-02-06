@@ -63,9 +63,16 @@ func main() {
   r.Use(httprate.Limit(
     100,           // requests
     1*time.Minute, // per duration
-    // an oversimplified example of rate limiting by a custom header
     httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
-    	return r.Header.Get("X-Access-Token"), nil
+      // disable rate limiting for all private ips
+      ipStr, _, _ := net.SplitHostPort(r.RemoteAddr)
+      ip := net.ParseIP(ipStr)
+      if ip.IsPrivate() {
+        return "", httprate.NoRateLimit
+      }
+
+      // an oversimplified example of rate limiting by a custom header
+      return r.Header.Get("X-Access-Token"), nil
     }),
   ))
 ```
