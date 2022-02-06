@@ -160,3 +160,46 @@ func TestLimitIP(t *testing.T) {
 		})
 	}
 }
+
+func TestNoRateLimit(t *testing.T) {
+	type test struct {
+		name          string
+		requestsLimit int
+		windowLength  time.Duration
+		reqIp         []string
+		respCodes     []int
+	}
+	tests := []test{
+		{
+			name:          "whitelist-ip",
+			requestsLimit: 1,
+			windowLength:  2 * time.Second,
+			reqIp:         []string{"1.1.1.1:100", "1.1.1.1:100", "2.2.2.2:200", "2.2.2.2:200"},
+			respCodes:     []int{200, 429, 200, 200},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+			router := httprate.Limit(
+				tt.requestsLimit,
+				tt.windowLength,
+				httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+					if r.RemoteAddr == "2.2.2.2:200" {
+						return "", httprate.NoRateLimit
+					}
+					return r.RemoteAddr, nil
+				}),
+			)(h)
+			for i, code := range tt.respCodes {
+				req := httptest.NewRequest("GET", "/", nil)
+				req.RemoteAddr = tt.reqIp[i]
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, req)
+				if respCode := recorder.Result().StatusCode; respCode != code {
+					t.Errorf("resp.StatusCode(%v) = %v, want %v", i, respCode, code)
+				}
+			}
+		})
+	}
+}

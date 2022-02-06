@@ -1,6 +1,7 @@
 package httprate
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -49,6 +50,8 @@ func KeyByIP(r *http.Request) (string, error) {
 func KeyByEndpoint(r *http.Request) (string, error) {
 	return r.URL.Path, nil
 }
+
+var NoRateLimit = errors.New("use this to signal that the rate limit should be ignored")
 
 func WithKeyFuncs(keyFuncs ...KeyFunc) Option {
 	return func(rl *rateLimiter) {

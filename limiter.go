@@ -92,6 +92,10 @@ func (r *rateLimiter) Status(key string) (bool, float64, error) {
 func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key, err := l.keyFn(r)
+		if err == NoRateLimit {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusPreconditionRequired)
 			return
