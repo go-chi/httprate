@@ -6,7 +6,7 @@ net/http request rate limiter based on the Sliding Window Counter pattern inspir
 CloudFlare https://blog.cloudflare.com/counting-things-a-lot-of-different-things/.
 
 The sliding window counter pattern is accurate, smooths traffic and offers a simple counter
-design to share a rate-limit amoung a cluster of servers. For example, if you'd like
+design to share a rate-limit among a cluster of servers. For example, if you'd like
 to use redis to coordinate a rate-limit across a group of microservices you just need
 to implement the httprate.LimitCounter interface to support an atomic increment
 and get. 
