@@ -12,7 +12,7 @@ import (
 
 type LimitCounter interface {
 	Increment(key string, currentWindow time.Time) error
-	Get(key string, previousWindow, currentWindow time.Time) (int, int, error)
+	Get(key string, currentWindow, previousWindow time.Time) (int, int, error)
 }
 
 func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Option) *rateLimiter {
