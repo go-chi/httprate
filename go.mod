@@ -1,4 +1,4 @@
-module github.com/go-aegian/httprate
+module github.com/go-chi/httprate
 
 go 1.14
 
