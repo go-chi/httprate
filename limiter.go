@@ -63,6 +63,7 @@ type rateLimiter struct {
 	windowLength   time.Duration
 	keyFn          KeyFunc
 	limitCounter   LimitCounter
+	writeHeaders   bool
 	onRequestLimit http.HandlerFunc
 }
 
@@ -99,9 +100,11 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 
 		currentWindow := time.Now().UTC().Truncate(l.windowLength)
 
-		w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", l.requestLimit))
-		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", 0))
-		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
+		if l.writeHeaders {
+			w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", l.requestLimit))
+			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", 0))
+			w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
+		}
 
 		_, rate, err := l.Status(key)
 		if err != nil {
@@ -110,12 +113,14 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		}
 		nrate := int(math.Round(rate))
 
-		if l.requestLimit > nrate {
+		if l.writeHeaders && l.requestLimit > nrate {
 			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", l.requestLimit-nrate))
 		}
 
 		if nrate >= l.requestLimit {
-			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
+			if l.writeHeaders {
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
+			}
 			l.onRequestLimit(w, r)
 			return
 		}

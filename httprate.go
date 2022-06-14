@@ -14,12 +14,12 @@ func Limit(requestLimit int, windowLength time.Duration, options ...Option) func
 type KeyFunc func(r *http.Request) (string, error)
 type Option func(rl *rateLimiter)
 
-func LimitAll(requestLimit int, windowLength time.Duration) func(next http.Handler) http.Handler {
-	return Limit(requestLimit, windowLength)
+func LimitAll(requestLimit int, windowLength time.Duration, writeHeaders bool) func(next http.Handler) http.Handler {
+	return Limit(requestLimit, windowLength, WithHeaders(writeHeaders))
 }
 
-func LimitByIP(requestLimit int, windowLength time.Duration) func(next http.Handler) http.Handler {
-	return Limit(requestLimit, windowLength, WithKeyFuncs(KeyByIP))
+func LimitByIP(requestLimit int, windowLength time.Duration, writeHeaders bool) func(next http.Handler) http.Handler {
+	return Limit(requestLimit, windowLength, WithHeaders(writeHeaders), WithKeyFuncs(KeyByIP))
 }
 
 func KeyByIP(r *http.Request) (string, error) {
@@ -67,6 +67,12 @@ func WithLimitHandler(h http.HandlerFunc) Option {
 func WithLimitCounter(c LimitCounter) Option {
 	return func(rl *rateLimiter) {
 		rl.limitCounter = c
+	}
+}
+
+func WithHeaders(on bool) Option {
+	return func(rl *rateLimiter) {
+		rl.writeHeaders = on
 	}
 }
 
