@@ -22,7 +22,19 @@ func LimitByIP(requestLimit int, windowLength time.Duration) func(next http.Hand
 	return Limit(requestLimit, windowLength, WithKeyFuncs(KeyByIP))
 }
 
+func LimitByRealIP(requestLimit int, windowLength time.Duration) func(next http.Handler) http.Handler {
+	return Limit(requestLimit, windowLength, WithKeyFuncs(KeyByRealIP))
+}
+
 func KeyByIP(r *http.Request) (string, error) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	return canonicalizeIP(ip), nil
+}
+
+func KeyByRealIP(r *http.Request) (string, error) {
 	var ip string
 
 	if tcip := r.Header.Get("True-Client-IP"); tcip != "" {
