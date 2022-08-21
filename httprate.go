@@ -1,6 +1,7 @@
 package httprate
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strings"
@@ -76,7 +77,27 @@ func WithLimitHandler(h http.HandlerFunc) Option {
 	}
 }
 
+// noContextLimitCounter wraps the context-less LimitCounter to implement the ContextLimitCounter interface.
+// Exists to maintain compatiblity.
+type noContextLimitCounter struct {
+	LimitCounter
+}
+
+func (l *noContextLimitCounter) Increment(_ context.Context, key string, currentWindow time.Time) error {
+	return l.LimitCounter.Increment(key, currentWindow)
+}
+
+func (l *noContextLimitCounter) Get(_ context.Context, key string, previousWindow, currentWindow time.Time) (int, int, error) {
+	return l.LimitCounter.Get(key, previousWindow, currentWindow)
+}
+
 func WithLimitCounter(c LimitCounter) Option {
+	return func(rl *rateLimiter) {
+		rl.limitCounter = &noContextLimitCounter{LimitCounter: c}
+	}
+}
+
+func WithContextLimitCounter(c ContextLimitCounter) Option {
 	return func(rl *rateLimiter) {
 		rl.limitCounter = c
 	}
