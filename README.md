@@ -82,6 +82,11 @@ func main() {
   ))
 ```
 
+## Related packages
+
+Redis backend for httprate: https://github.com/go-chi/httprate-redis
+
+
 ## LICENSE
 
 MIT
