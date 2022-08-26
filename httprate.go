@@ -70,6 +70,14 @@ func WithKeyFuncs(keyFuncs ...KeyFunc) Option {
 	}
 }
 
+func WithKeyByIP() Option {
+	return WithKeyFuncs(KeyByIP)
+}
+
+func WithKeyByRealIP() Option {
+	return WithKeyFuncs(KeyByRealIP)
+}
+
 func WithLimitHandler(h http.HandlerFunc) Option {
 	return func(rl *rateLimiter) {
 		rl.onRequestLimit = h
