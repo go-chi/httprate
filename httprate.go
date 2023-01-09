@@ -99,6 +99,7 @@ func composedKeyFunc(keyFuncs ...KeyFunc) KeyFunc {
 				return "", err
 			}
 			key.WriteString(k)
+			key.WriteRune(':')
 		}
 		return key.String(), nil
 	}
