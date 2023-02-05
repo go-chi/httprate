@@ -22,7 +22,19 @@ func LimitByIP(requestLimit int, windowLength time.Duration, writeHeaders bool) 
 	return Limit(requestLimit, windowLength, WithHeaders(writeHeaders), WithKeyFuncs(KeyByIP))
 }
 
+func LimitByRealIP(requestLimit int, windowLength time.Duration) func(next http.Handler) http.Handler {
+	return Limit(requestLimit, windowLength, WithKeyFuncs(KeyByRealIP))
+}
+
 func KeyByIP(r *http.Request) (string, error) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	return canonicalizeIP(ip), nil
+}
+
+func KeyByRealIP(r *http.Request) (string, error) {
 	var ip string
 
 	if tcip := r.Header.Get("True-Client-IP"); tcip != "" {
@@ -58,6 +70,14 @@ func WithKeyFuncs(keyFuncs ...KeyFunc) Option {
 	}
 }
 
+func WithKeyByIP() Option {
+	return WithKeyFuncs(KeyByIP)
+}
+
+func WithKeyByRealIP() Option {
+	return WithKeyFuncs(KeyByRealIP)
+}
+
 func WithLimitHandler(h http.HandlerFunc) Option {
 	return func(rl *rateLimiter) {
 		rl.onRequestLimit = h
@@ -85,6 +105,7 @@ func composedKeyFunc(keyFuncs ...KeyFunc) KeyFunc {
 				return "", err
 			}
 			key.WriteString(k)
+			key.WriteRune(':')
 		}
 		return key.String(), nil
 	}

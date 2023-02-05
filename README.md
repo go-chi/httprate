@@ -20,8 +20,8 @@ package main
 import (
   "net/http"
 
-  "github.com/go-chi/chi"
-  "github.com/go-chi/chi/middleware"
+  "github.com/go-chi/chi/v5"
+  "github.com/go-chi/chi/v5/middleware"
   "github.com/go-chi/httprate"
 )
 
@@ -81,6 +81,11 @@ func main() {
     }),
   ))
 ```
+
+## Related packages
+
+Redis backend for httprate: https://github.com/go-chi/httprate-redis
+
 
 ## LICENSE
 

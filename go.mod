@@ -1,5 +1,5 @@
 module github.com/go-chi/httprate
 
-go 1.14
+go 1.17
 
 require github.com/cespare/xxhash/v2 v2.1.2

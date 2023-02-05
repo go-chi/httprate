@@ -11,6 +11,7 @@ import (
 )
 
 type LimitCounter interface {
+	Config(requestLimit int, windowLength time.Duration)
 	Increment(key string, currentWindow time.Time) error
 	Get(key string, currentWindow, previousWindow time.Time) (int, int, error)
 }
@@ -41,6 +42,7 @@ func newRateLimiter(requestLimit int, windowLength time.Duration, options ...Opt
 			windowLength: windowLength,
 		}
 	}
+	rl.limitCounter.Config(requestLimit, windowLength)
 
 	if rl.onRequestLimit == nil {
 		rl.onRequestLimit = func(w http.ResponseWriter, r *http.Request) {
@@ -49,13 +51,6 @@ func newRateLimiter(requestLimit int, windowLength time.Duration, options ...Opt
 	}
 
 	return rl
-}
-
-func LimitCounterKey(key string, window time.Time) uint64 {
-	h := xxhash.New()
-	h.WriteString(key)
-	h.WriteString(fmt.Sprintf("%d", window.Unix()))
-	return h.Sum64()
 }
 
 type rateLimiter struct {
@@ -149,6 +144,12 @@ type count struct {
 	updatedAt time.Time
 }
 
+func (c *localCounter) Config(requestLimit int, windowLength time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.windowLength = windowLength
+}
+
 func (c *localCounter) Increment(key string, currentWindow time.Time) error {
 	c.evict()
 
@@ -200,4 +201,11 @@ func (c *localCounter) evict() {
 			delete(c.counters, k)
 		}
 	}
+}
+
+func LimitCounterKey(key string, window time.Time) uint64 {
+	h := xxhash.New()
+	h.WriteString(key)
+	h.WriteString(fmt.Sprintf("%d", window.Unix()))
+	return h.Sum64()
 }
