@@ -59,6 +59,7 @@ type rateLimiter struct {
 	keyFn          KeyFunc
 	limitCounter   LimitCounter
 	onRequestLimit http.HandlerFunc
+	mu             sync.Mutex
 }
 
 func (r *rateLimiter) Counter() LimitCounter {
@@ -86,6 +87,9 @@ func (r *rateLimiter) Status(key string) (bool, float64, error) {
 
 func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+
 		key, err := l.keyFn(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusPreconditionRequired)
