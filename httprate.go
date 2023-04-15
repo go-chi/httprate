@@ -90,6 +90,10 @@ func WithLimitCounter(c LimitCounter) Option {
 	}
 }
 
+func WithNoop() Option {
+	return func(rl *rateLimiter) {}
+}
+
 func composedKeyFunc(keyFuncs ...KeyFunc) KeyFunc {
 	return func(r *http.Request) (string, error) {
 		var key strings.Builder
