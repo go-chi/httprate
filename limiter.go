@@ -13,6 +13,7 @@ import (
 type LimitCounter interface {
 	Config(requestLimit int, windowLength time.Duration)
 	Increment(key string, currentWindow time.Time) error
+	IncrementBy(key string, currentWindow time.Time, amount int) error
 	Get(key string, currentWindow, previousWindow time.Time) (int, int, error)
 }
 
@@ -119,7 +120,7 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		err = l.limitCounter.Increment(key, currentWindow)
+		err = l.limitCounter.IncrementBy(key, currentWindow, getIncrement(r.Context()))
 		if err != nil {
 			l.mu.Unlock()
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -152,6 +153,10 @@ func (c *localCounter) Config(requestLimit int, windowLength time.Duration) {
 }
 
 func (c *localCounter) Increment(key string, currentWindow time.Time) error {
+	return c.IncrementBy(key, currentWindow, 1)
+}
+
+func (c *localCounter) IncrementBy(key string, currentWindow time.Time, amount int) error {
 	c.evict()
 
 	c.mu.Lock()
@@ -164,7 +169,7 @@ func (c *localCounter) Increment(key string, currentWindow time.Time) error {
 		v = &count{}
 		c.counters[hkey] = v
 	}
-	v.value += 1
+	v.value += amount
 	v.updatedAt = time.Now()
 
 	return nil

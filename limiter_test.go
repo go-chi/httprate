@@ -49,6 +49,45 @@ func TestLimit(t *testing.T) {
 	}
 }
 
+func TestWithIncrement(t *testing.T) {
+	type test struct {
+		name          string
+		requestsLimit int
+		windowLength  time.Duration
+		respCodes     []int
+	}
+	tests := []test{
+		{
+			name:          "no-block",
+			requestsLimit: 3,
+			windowLength:  4 * time.Second,
+			respCodes:     []int{200, 200, 429},
+		},
+		{
+			name:          "block",
+			requestsLimit: 3,
+			windowLength:  2 * time.Second,
+			respCodes:     []int{200, 200, 429, 429},
+		},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+			router := httprate.LimitAll(tt.requestsLimit, tt.windowLength)(h)
+
+			for _, code := range tt.respCodes {
+				req := httptest.NewRequest("GET", "/", nil)
+				req = req.WithContext(httprate.WithIncrement(req.Context(), 2))
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, req)
+				if respCode := recorder.Result().StatusCode; respCode != code {
+					t.Errorf("resp.StatusCode(%v) = %v, want %v", i, respCode, code)
+				}
+			}
+		})
+	}
+}
+
 func TestLimitHandler(t *testing.T) {
 	type test struct {
 		name          string
