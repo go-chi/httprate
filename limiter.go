@@ -1,6 +1,7 @@
 package httprate
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/http"
@@ -67,7 +68,7 @@ func (l *rateLimiter) Counter() LimitCounter {
 	return l.limitCounter
 }
 
-func (l *rateLimiter) Status(key string) (bool, float64, error) {
+func (l *rateLimiter) Status(ctx context.Context, key string) (bool, float64, error) {
 	t := time.Now().UTC()
 	currentWindow := t.Truncate(l.windowLength)
 	previousWindow := currentWindow.Add(-l.windowLength)
@@ -80,7 +81,12 @@ func (l *rateLimiter) Status(key string) (bool, float64, error) {
 	diff := t.Sub(currentWindow)
 	rate := float64(prevCount)*(float64(l.windowLength)-float64(diff))/float64(l.windowLength) + float64(currCount)
 
-	if rate > float64(l.requestLimit) {
+	limit := l.requestLimit
+	if val := getRequestLimit(ctx); val > 0 {
+		limit = val
+	}
+
+	if rate > float64(limit) {
 		return false, rate, nil
 	}
 	return true, rate, nil
@@ -95,13 +101,18 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		}
 
 		currentWindow := time.Now().UTC().Truncate(l.windowLength)
+		ctx := r.Context()
 
-		w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", l.requestLimit))
+		limit := l.requestLimit
+		if val := getRequestLimit(ctx); val > 0 {
+			limit = val
+		}
+		w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
 		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", 0))
 		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
 
 		l.mu.Lock()
-		_, rate, err := l.Status(key)
+		_, rate, err := l.Status(ctx, key)
 		if err != nil {
 			l.mu.Unlock()
 			http.Error(w, err.Error(), http.StatusPreconditionRequired)
@@ -109,11 +120,11 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		}
 		nrate := int(math.Round(rate))
 
-		if l.requestLimit > nrate {
-			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", l.requestLimit-nrate))
+		if limit > nrate {
+			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", limit-nrate))
 		}
 
-		if nrate >= l.requestLimit {
+		if nrate >= limit {
 			l.mu.Unlock()
 			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
 			l.onRequestLimit(w, r)
