@@ -2,6 +2,7 @@ package httprate_test
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -204,5 +205,50 @@ func TestLimitIP(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOverrideRequestLimit(t *testing.T) {
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	router := httprate.Limit(
+		3,
+		60*time.Second,
+		httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "Wow Slow Down Kiddo", 429)
+		}),
+	)(h)
+
+	responses := []struct {
+		Body         string
+		StatusCode   int
+		RequestLimit int
+	}{
+		{Body: "", StatusCode: 200},
+		{Body: "Wow Slow Down Kiddo", StatusCode: 429, RequestLimit: 1},
+		{Body: "", StatusCode: 200},
+	}
+	for i, response := range responses {
+		ctx := context.Background()
+		if response.RequestLimit > 0 {
+			ctx = httprate.WithRequestLimit(ctx, response.RequestLimit)
+		}
+		req, err := http.NewRequestWithContext(ctx, "GET", "/", nil)
+		if err != nil {
+			t.Errorf("failed = %v", err)
+		}
+
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, req)
+		result := recorder.Result()
+		if respStatus := result.StatusCode; respStatus != response.StatusCode {
+			t.Errorf("resp.StatusCode(%v) = %v, want %v", i, respStatus, response.StatusCode)
+		}
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(result.Body)
+		respBody := strings.TrimSuffix(buf.String(), "\n")
+
+		if respBody != response.Body {
+			t.Errorf("resp.Body(%v) = %v, want %v", i, respBody, response.Body)
+		}
 	}
 }
