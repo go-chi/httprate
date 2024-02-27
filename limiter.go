@@ -68,22 +68,7 @@ func (l *rateLimiter) Counter() LimitCounter {
 }
 
 func (l *rateLimiter) Status(key string) (bool, float64, error) {
-	t := time.Now().UTC()
-	currentWindow := t.Truncate(l.windowLength)
-	previousWindow := currentWindow.Add(-l.windowLength)
-
-	currCount, prevCount, err := l.limitCounter.Get(key, currentWindow, previousWindow)
-	if err != nil {
-		return false, 0, err
-	}
-
-	diff := t.Sub(currentWindow)
-	rate := float64(prevCount)*(float64(l.windowLength)-float64(diff))/float64(l.windowLength) + float64(currCount)
-
-	if rate > float64(l.requestLimit) {
-		return false, rate, nil
-	}
-	return true, rate, nil
+	return l.calculateRate(key, l.requestLimit)
 }
 
 func (l *rateLimiter) Handler(next http.Handler) http.Handler {
@@ -95,13 +80,18 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		}
 
 		currentWindow := time.Now().UTC().Truncate(l.windowLength)
+		ctx := r.Context()
 
-		w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", l.requestLimit))
+		limit := l.requestLimit
+		if val := getRequestLimit(ctx); val > 0 {
+			limit = val
+		}
+		w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
 		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", 0))
 		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
 
 		l.mu.Lock()
-		_, rate, err := l.Status(key)
+		_, rate, err := l.calculateRate(key, limit)
 		if err != nil {
 			l.mu.Unlock()
 			http.Error(w, err.Error(), http.StatusPreconditionRequired)
@@ -109,11 +99,11 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		}
 		nrate := int(math.Round(rate))
 
-		if l.requestLimit > nrate {
-			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", l.requestLimit-nrate))
+		if limit > nrate {
+			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", limit-nrate))
 		}
 
-		if nrate >= l.requestLimit {
+		if nrate >= limit {
 			l.mu.Unlock()
 			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
 			l.onRequestLimit(w, r)
@@ -130,6 +120,25 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (l *rateLimiter) calculateRate(key string, requestLimit int) (bool, float64, error) {
+	t := time.Now().UTC()
+	currentWindow := t.Truncate(l.windowLength)
+	previousWindow := currentWindow.Add(-l.windowLength)
+
+	currCount, prevCount, err := l.limitCounter.Get(key, currentWindow, previousWindow)
+	if err != nil {
+		return false, 0, err
+	}
+
+	diff := t.Sub(currentWindow)
+	rate := float64(prevCount)*(float64(l.windowLength)-float64(diff))/float64(l.windowLength) + float64(currCount)
+	if rate > float64(requestLimit) {
+		return false, rate, nil
+	}
+
+	return true, rate, nil
 }
 
 type localCounter struct {
