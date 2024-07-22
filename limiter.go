@@ -166,10 +166,10 @@ func (c *localCounter) Increment(key string, currentWindow time.Time) error {
 }
 
 func (c *localCounter) IncrementBy(key string, currentWindow time.Time, amount int) error {
-	c.evict()
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	c.evict()
 
 	hkey := LimitCounterKey(key, currentWindow)
 
@@ -201,9 +201,6 @@ func (c *localCounter) Get(key string, currentWindow, previousWindow time.Time) 
 }
 
 func (c *localCounter) evict() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	d := c.windowLength * 3
 
 	if time.Since(c.lastEvict) < d {
