@@ -98,9 +98,10 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 			return
 		}
 		nrate := int(math.Round(rate))
+		incr := getIncrement(r.Context())
 
 		if limit > nrate {
-			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", limit-nrate))
+			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", limit-nrate-incr))
 		}
 
 		if nrate >= limit {
@@ -110,7 +111,7 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		err = l.limitCounter.IncrementBy(key, currentWindow, getIncrement(r.Context()))
+		err = l.limitCounter.IncrementBy(key, currentWindow, incr)
 		if err != nil {
 			l.mu.Unlock()
 			http.Error(w, err.Error(), http.StatusInternalServerError)

@@ -114,7 +114,7 @@ func TestResponseHeaders(t *testing.T) {
 			name:                "varying increments",
 			requestsLimit:       5,
 			windowLength:        time.Second,
-			increments:          []int{2, 2, 1, 2, 2, 1},
+			increments:          []int{2, 2, 1, 2, 10, 1},
 			respCodes:           []int{200, 200, 200, 429, 429, 429},
 			respLimitHeader:     []string{"5", "5", "5", "5", "5", "5"},
 			respRemainingHeader: []string{"3", "1", "0", "0", "0", "0"},
