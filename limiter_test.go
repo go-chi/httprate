@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,12 +34,12 @@ func TestLimit(t *testing.T) {
 			respCodes:     []int{200, 200, 200, 429},
 		},
 	}
-	for i, tt := range tests {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 			router := httprate.LimitAll(tt.requestsLimit, tt.windowLength)(h)
 
-			for _, code := range tt.respCodes {
+			for i, code := range tt.respCodes {
 				req := httptest.NewRequest("GET", "/", nil)
 				recorder := httptest.NewRecorder()
 				router.ServeHTTP(recorder, req)
@@ -71,18 +72,85 @@ func TestWithIncrement(t *testing.T) {
 			respCodes:     []int{200, 200, 429, 429},
 		},
 	}
-	for i, tt := range tests {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 			router := httprate.LimitAll(tt.requestsLimit, tt.windowLength)(h)
 
-			for _, code := range tt.respCodes {
+			for i, code := range tt.respCodes {
 				req := httptest.NewRequest("GET", "/", nil)
 				req = req.WithContext(httprate.WithIncrement(req.Context(), 2))
 				recorder := httptest.NewRecorder()
 				router.ServeHTTP(recorder, req)
 				if respCode := recorder.Result().StatusCode; respCode != code {
 					t.Errorf("resp.StatusCode(%v) = %v, want %v", i, respCode, code)
+				}
+			}
+		})
+	}
+}
+
+func TestResponseHeaders(t *testing.T) {
+	type test struct {
+		name                string
+		requestsLimit       int
+		windowLength        time.Duration
+		increments          []int
+		respCodes           []int
+		respLimitHeader     []string
+		respRemainingHeader []string
+	}
+	tests := []test{
+		{
+			name:                "const increments",
+			requestsLimit:       5,
+			windowLength:        time.Second,
+			increments:          []int{1, 1, 1, 1, 1, 1},
+			respCodes:           []int{200, 200, 200, 200, 200, 429},
+			respLimitHeader:     []string{"5", "5", "5", "5", "5", "5"},
+			respRemainingHeader: []string{"4", "3", "2", "1", "0", "0"},
+		},
+		{
+			name:                "varying increments",
+			requestsLimit:       5,
+			windowLength:        time.Second,
+			increments:          []int{2, 2, 1, 2, 10, 1},
+			respCodes:           []int{200, 200, 200, 429, 429, 429},
+			respLimitHeader:     []string{"5", "5", "5", "5", "5", "5"},
+			respRemainingHeader: []string{"3", "1", "0", "0", "0", "0"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			count := len(tt.increments)
+			if count != len(tt.respCodes) || count != len(tt.respLimitHeader) || count != len(tt.respRemainingHeader) {
+				t.Fatalf("invalid test case: increments(%v), respCodes(%v), respLimitHeader(%v) and respRemainingHeaders(%v) must have same size", len(tt.increments), len(tt.respCodes), len(tt.respLimitHeader), len(tt.respRemainingHeader))
+			}
+
+			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+			router := httprate.LimitAll(tt.requestsLimit, tt.windowLength)(h)
+
+			for i := 0; i < count; i++ {
+				req := httptest.NewRequest("GET", "/", nil)
+				req = req.WithContext(httprate.WithIncrement(req.Context(), tt.increments[i]))
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, req)
+
+				if respCode := recorder.Result().StatusCode; respCode != tt.respCodes[i] {
+					t.Errorf("resp.StatusCode(%v) = %v, want %v", i, respCode, tt.respCodes[i])
+				}
+
+				headers := recorder.Result().Header
+				if limit := headers.Get("X-RateLimit-Limit"); limit != tt.respLimitHeader[i] {
+					t.Errorf("X-RateLimit-Limit(%v) = %v, want %v", i, limit, tt.respLimitHeader[i])
+				}
+				if remaining := headers.Get("X-RateLimit-Remaining"); remaining != tt.respRemainingHeader[i] {
+					t.Errorf("X-RateLimit-Remaining(%v) = %v, want %v", i, remaining, tt.respRemainingHeader[i])
+				}
+
+				reset := headers.Get("X-RateLimit-Reset")
+				if resetUnixTime, err := strconv.ParseInt(reset, 10, 64); err != nil || resetUnixTime <= time.Now().Unix() {
+					t.Errorf("X-RateLimit-Reset(%v) = %v, want unix timestamp in the future", i, reset)
 				}
 			}
 		})
