@@ -3,6 +3,7 @@ package httprate_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -54,32 +55,50 @@ func TestLimit(t *testing.T) {
 func TestWithIncrement(t *testing.T) {
 	type test struct {
 		name          string
+		increment     int
 		requestsLimit int
-		windowLength  time.Duration
 		respCodes     []int
 	}
 	tests := []test{
 		{
-			name:          "no-block",
+			name:          "no limit",
+			increment:     0,
 			requestsLimit: 3,
-			windowLength:  4 * time.Second,
-			respCodes:     []int{200, 200, 429},
+			respCodes:     []int{200, 200, 200, 200},
 		},
 		{
-			name:          "block",
+			name:          "increment 1",
+			increment:     1,
 			requestsLimit: 3,
-			windowLength:  2 * time.Second,
-			respCodes:     []int{200, 200, 429, 429},
+			respCodes:     []int{200, 200, 200, 429},
+		},
+		{
+			name:          "increment 2",
+			increment:     2,
+			requestsLimit: 3,
+			respCodes:     []int{200, 429, 429, 429},
+		},
+		{
+			name:          "increment 3",
+			increment:     3,
+			requestsLimit: 3,
+			respCodes:     []int{200, 429, 429, 429},
+		},
+		{
+			name:          "always block",
+			increment:     4,
+			requestsLimit: 3,
+			respCodes:     []int{429, 429, 429, 429},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-			router := httprate.LimitAll(tt.requestsLimit, tt.windowLength)(h)
+			router := httprate.LimitAll(tt.requestsLimit, time.Minute)(h)
 
 			for i, code := range tt.respCodes {
 				req := httptest.NewRequest("GET", "/", nil)
-				req = req.WithContext(httprate.WithIncrement(req.Context(), 2))
+				req = req.WithContext(httprate.WithIncrement(req.Context(), tt.increment))
 				recorder := httptest.NewRecorder()
 				router.ServeHTTP(recorder, req)
 				if respCode := recorder.Result().StatusCode; respCode != code {
@@ -94,7 +113,6 @@ func TestResponseHeaders(t *testing.T) {
 	type test struct {
 		name                string
 		requestsLimit       int
-		windowLength        time.Duration
 		increments          []int
 		respCodes           []int
 		respLimitHeader     []string
@@ -104,7 +122,6 @@ func TestResponseHeaders(t *testing.T) {
 		{
 			name:                "const increments",
 			requestsLimit:       5,
-			windowLength:        time.Second,
 			increments:          []int{1, 1, 1, 1, 1, 1},
 			respCodes:           []int{200, 200, 200, 200, 200, 429},
 			respLimitHeader:     []string{"5", "5", "5", "5", "5", "5"},
@@ -113,11 +130,26 @@ func TestResponseHeaders(t *testing.T) {
 		{
 			name:                "varying increments",
 			requestsLimit:       5,
-			windowLength:        time.Second,
 			increments:          []int{2, 2, 1, 2, 10, 1},
 			respCodes:           []int{200, 200, 200, 429, 429, 429},
 			respLimitHeader:     []string{"5", "5", "5", "5", "5", "5"},
 			respRemainingHeader: []string{"3", "1", "0", "0", "0", "0"},
+		},
+		{
+			name:                "no limit",
+			requestsLimit:       5,
+			increments:          []int{0, 0, 0, 0, 0, 0},
+			respCodes:           []int{200, 200, 200, 200, 200, 200},
+			respLimitHeader:     []string{"5", "5", "5", "5", "5", "5"},
+			respRemainingHeader: []string{"5", "5", "5", "5", "5", "5"},
+		},
+		{
+			name:                "always block",
+			requestsLimit:       5,
+			increments:          []int{10, 10, 10, 10, 10, 10},
+			respCodes:           []int{429, 429, 429, 429, 429, 429},
+			respLimitHeader:     []string{"5", "5", "5", "5", "5", "5"},
+			respRemainingHeader: []string{"5", "5", "5", "5", "5", "5"},
 		},
 	}
 	for _, tt := range tests {
@@ -128,7 +160,7 @@ func TestResponseHeaders(t *testing.T) {
 			}
 
 			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-			router := httprate.LimitAll(tt.requestsLimit, tt.windowLength)(h)
+			router := httprate.LimitAll(tt.requestsLimit, time.Minute)(h)
 
 			for i := 0; i < count; i++ {
 				req := httptest.NewRequest("GET", "/", nil)
@@ -280,20 +312,26 @@ func TestOverrideRequestLimit(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 	router := httprate.Limit(
 		3,
-		60*time.Second,
+		time.Minute,
 		httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Wow Slow Down Kiddo", 429)
 		}),
 	)(h)
 
 	responses := []struct {
-		Body         string
 		StatusCode   int
-		RequestLimit int
+		Body         string
+		RequestLimit int // Default: 3
 	}{
-		{Body: "", StatusCode: 200},
-		{Body: "Wow Slow Down Kiddo", StatusCode: 429, RequestLimit: 1},
-		{Body: "", StatusCode: 200},
+		{StatusCode: 200, Body: ""},
+		{StatusCode: 429, Body: "Wow Slow Down Kiddo", RequestLimit: 1},
+		{StatusCode: 200, Body: ""},
+		{StatusCode: 200, Body: ""},
+		{StatusCode: 429, Body: "Wow Slow Down Kiddo"},
+
+		{StatusCode: 200, Body: "", RequestLimit: 5},
+		{StatusCode: 200, Body: "", RequestLimit: 5},
+		{StatusCode: 429, Body: "Wow Slow Down Kiddo", RequestLimit: 5},
 	}
 	for i, response := range responses {
 		ctx := context.Background()
@@ -311,12 +349,11 @@ func TestOverrideRequestLimit(t *testing.T) {
 		if respStatus := result.StatusCode; respStatus != response.StatusCode {
 			t.Errorf("resp.StatusCode(%v) = %v, want %v", i, respStatus, response.StatusCode)
 		}
-		buf := new(bytes.Buffer)
-		buf.ReadFrom(result.Body)
-		respBody := strings.TrimSuffix(buf.String(), "\n")
+		body, _ := io.ReadAll(result.Body)
+		respBody := strings.TrimSuffix(string(body), "\n")
 
 		if respBody != response.Body {
-			t.Errorf("resp.Body(%v) = %v, want %v", i, respBody, response.Body)
+			t.Errorf("resp.Body(%v) = %q, want %q", i, respBody, response.Body)
 		}
 	}
 }
