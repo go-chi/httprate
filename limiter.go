@@ -44,8 +44,10 @@ func newRateLimiter(requestLimit int, windowLength time.Duration, options ...Opt
 
 	if rl.limitCounter == nil {
 		rl.limitCounter = &localCounter{
-			counters:     make(map[uint64]*count),
-			windowLength: windowLength,
+			latestWindow:     time.Now().UTC().Truncate(windowLength),
+			latestCounters:   make(map[uint64]int),
+			previousCounters: make(map[uint64]int),
+			windowLength:     windowLength,
 		}
 	}
 	rl.limitCounter.Config(requestLimit, windowLength)
@@ -133,8 +135,8 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 }
 
 func (l *rateLimiter) calculateRate(key string, requestLimit int) (bool, float64, error) {
-	t := time.Now().UTC()
-	currentWindow := t.Truncate(l.windowLength)
+	now := time.Now().UTC()
+	currentWindow := now.Truncate(l.windowLength)
 	previousWindow := currentWindow.Add(-l.windowLength)
 
 	currCount, prevCount, err := l.limitCounter.Get(key, currentWindow, previousWindow)
@@ -142,7 +144,7 @@ func (l *rateLimiter) calculateRate(key string, requestLimit int) (bool, float64
 		return false, 0, err
 	}
 
-	diff := t.Sub(currentWindow)
+	diff := now.Sub(currentWindow)
 	rate := float64(prevCount)*(float64(l.windowLength)-float64(diff))/float64(l.windowLength) + float64(currCount)
 	if rate > float64(requestLimit) {
 		return false, rate, nil
