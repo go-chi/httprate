@@ -18,32 +18,32 @@ and get.
 package main
 
 import (
-  "net/http"
+	"net/http"
 
-  "github.com/go-chi/chi/v5"
-  "github.com/go-chi/chi/v5/middleware"
-  "github.com/go-chi/httprate"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/httprate"
 )
 
 func main() {
-  r := chi.NewRouter()
-  r.Use(middleware.Logger)
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
 
-  // Enable httprate request limiter of 100 requests per minute.
-  //
-  // In the code example below, rate-limiting is bound to the request IP address
-  // via the LimitByIP middleware handler.
-  //
-  // To have a single rate-limiter for all requests, use httprate.LimitAll(..).
-  //
-  // Please see _example/main.go for other more, or read the library code.
-  r.Use(httprate.LimitByIP(100, 1*time.Minute))
+	// Enable httprate request limiter of 100 requests per minute.
+	//
+	// In the code example below, rate-limiting is bound to the request IP address
+	// via the LimitByIP middleware handler.
+	//
+	// To have a single rate-limiter for all requests, use httprate.LimitAll(..).
+	//
+	// Please see _example/main.go for other more, or read the library code.
+	r.Use(httprate.LimitByIP(100, time.Minute))
 
-  r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-    w.Write([]byte("."))
-  })
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("."))
+	})
 
-  http.ListenAndServe(":3333", r)
+	http.ListenAndServe(":3333", r)
 }
 ```
 
@@ -51,35 +51,61 @@ func main() {
 
 ### Rate limit by IP and URL path (aka endpoint)
 ```go
-  r.Use(httprate.Limit(
-  	10,             // requests
-  	10*time.Second, // per duration
-  	httprate.WithKeyFuncs(httprate.KeyByIP, httprate.KeyByEndpoint),
-  ))
+r.Use(httprate.Limit(
+	10,             // requests
+	10*time.Second, // per duration
+	httprate.WithKeyFuncs(httprate.KeyByIP, httprate.KeyByEndpoint),
+))
 ```
 
 ### Rate limit by arbitrary keys
 ```go
-  r.Use(httprate.Limit(
-    100,           // requests
-    1*time.Minute, // per duration
-    // an oversimplified example of rate limiting by a custom header
-    httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
-    	return r.Header.Get("X-Access-Token"), nil
-    }),
-  ))
+r.Use(httprate.Limit(
+	100,
+	time.Minute,
+	// an oversimplified example of rate limiting by a custom header
+	httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+		return r.Header.Get("X-Access-Token"), nil
+	}),
+))
 ```
 
 ### Send specific response for rate limited requests
 
 ```go
-  r.Use(httprate.Limit(
-    10,            // requests
-    1*time.Second, // per duration
-    httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-      http.Error(w, "some specific response here", http.StatusTooManyRequests)
-    }),
-  ))
+r.Use(httprate.Limit(
+	10,
+	time.Minute,
+	httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "some specific response here", http.StatusTooManyRequests)
+	}),
+))
+```
+
+### Customize response headers
+
+```go
+r.Use(httprate.Limit(
+	1000,
+	time.Minute,
+	httprate.WithResponseHeaders(httprate.ResponseHeaders{
+		Limit:      "X-RateLimit-Limit",
+		Remaining:  "X-RateLimit-Remaining",
+		Reset:      "X-RateLimit-Reset",
+		RetryAfter: "Retry-After",
+		Increment:  "", // omit
+	}),
+))
+```
+
+### Omit response headers
+
+```go
+r.Use(httprate.Limit(
+	1000,
+	time.Minute,
+	httprate.WithResponseHeaders(httprate.ResponseHeaders{}),
+))
 ```
 
 ## Related packages
