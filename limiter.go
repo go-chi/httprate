@@ -87,7 +87,6 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 			limit = val
 		}
 		w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
-		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", 0))
 		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
 
 		l.mu.Lock()
