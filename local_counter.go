@@ -14,7 +14,7 @@ type localCounter struct {
 	counters     map[uint64]*count
 	windowLength time.Duration
 	lastEvict    time.Time
-	mu           sync.Mutex
+	mu           sync.RWMutex
 }
 
 type count struct {
@@ -25,6 +25,7 @@ type count struct {
 func (c *localCounter) Config(requestLimit int, windowLength time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.windowLength = windowLength
 }
 
@@ -52,8 +53,8 @@ func (c *localCounter) IncrementBy(key string, currentWindow time.Time, amount i
 }
 
 func (c *localCounter) Get(key string, currentWindow, previousWindow time.Time) (int, int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	curr, ok := c.counters[LimitCounterKey(key, currentWindow)]
 	if !ok {
