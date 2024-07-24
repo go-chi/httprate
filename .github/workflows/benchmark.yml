@@ -20,26 +20,26 @@ jobs:
           ref: master
 
       - name: Run benchmark (master)
-        run: go test -bench=. -benchtime=100x -benchmem | tee master.txt
+        run: go test -bench=. -benchtime=100x -benchmem | tee /tmp/master.txt
 
       - name: Git clone (PR)
         uses: actions/checkout@v4
 
       - name: Run benchmark (PR)
-        run: go test -bench=. -benchtime=100x -benchmem | tee pr.txt
+        run: go test -bench=. -benchtime=100x -benchmem | tee /tmp/pr.txt
 
       - name: Install benchstat
         run: go install golang.org/x/perf/cmd/benchstat@latest
 
       - name: Run benchstat
-        run: benchstat master.txt pr.txt | tee result.txt
+        run: cd /tmp && benchstat master.txt pr.txt | tee /tmp/result.txt
 
       - name: Comment on PR with benchmark results
         uses: actions/github-script@v6
         with:
           script: |
             const fs = require('fs');
-            const results = fs.readFileSync('result.txt', 'utf8');
+            const results = fs.readFileSync('/tmp/result.txt', 'utf8');
             const issue_number = context.payload.pull_request.number;
             const { owner, repo } = context.repo;
 
