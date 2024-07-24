@@ -189,6 +189,87 @@ func TestResponseHeaders(t *testing.T) {
 	}
 }
 
+func TestCustomResponseHeaders(t *testing.T) {
+	type test struct {
+		name    string
+		headers httprate.ResponseHeaders
+	}
+	tests := []test{
+		{
+			name: "no headers",
+			headers: httprate.ResponseHeaders{
+				Limit:      "",
+				Remaining:  "",
+				Reset:      "",
+				RetryAfter: "",
+				Increment:  "",
+			},
+		},
+		{
+			name: "custom headers",
+			headers: httprate.ResponseHeaders{
+				Limit:      "RateLimit-Limit",
+				Remaining:  "RateLimit-Remaining",
+				Reset:      "RateLimit-Reset",
+				RetryAfter: "RateLimit-Retry",
+				Increment:  "",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+			router := httprate.Limit(
+				1,
+				time.Minute,
+				httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, "Wow Slow Down Kiddo", 429)
+				}),
+				httprate.WithResponseHeaders(tt.headers),
+			)(h)
+
+			req := httptest.NewRequest("GET", "/", nil)
+
+			// Force Retry-After and X-RateLimit-Increment headers.
+			req = req.WithContext(httprate.WithIncrement(req.Context(), 2))
+
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, req)
+
+			headers := recorder.Result().Header
+
+			if len(headers.Values("X-RateLimit-Limit")) != 0 {
+				t.Errorf("X-RateLimit-Limit header not expected")
+			}
+			if len(headers.Values("X-RateLimit-Remaining")) != 0 {
+				t.Errorf("X-RateLimit-Remaining header not expected")
+			}
+			if len(headers.Values("X-RateLimit-Reset")) != 0 {
+				t.Errorf("X-RateLimit-Reset header not expected")
+			}
+			if len(headers.Values("Retry-After")) != 0 {
+				t.Errorf("Retry-After header not expected")
+			}
+
+			if h := headers.Get(tt.headers.Limit); h == "" {
+				t.Errorf("%s header expected", tt.headers.Limit)
+			}
+			if h := headers.Get(tt.headers.Remaining); h == "" {
+				t.Errorf("%s header expected", tt.headers.Remaining)
+			}
+			if h := headers.Get(tt.headers.Increment); h == "" {
+				t.Errorf("%s header expected", tt.headers.Increment)
+			}
+			if h := headers.Get(tt.headers.Reset); h == "" {
+				t.Errorf("%s header expected", tt.headers.Reset)
+			}
+			if h := headers.Get(tt.headers.RetryAfter); h == "" {
+				t.Errorf("%s header expected", tt.headers.RetryAfter)
+			}
+		})
+	}
+}
+
 func TestLimitHandler(t *testing.T) {
 	type test struct {
 		name          string

@@ -14,6 +14,15 @@ func Limit(requestLimit int, windowLength time.Duration, options ...Option) func
 type KeyFunc func(r *http.Request) (string, error)
 type Option func(rl *rateLimiter)
 
+// Set custom response headers. If empty, the header is omitted.
+type ResponseHeaders struct {
+	Limit      string // Default: X-RateLimit-Limit
+	Remaining  string // Default: X-RateLimit-Remaining
+	Increment  string // Default: X-RateLimit-Increment
+	Reset      string // Default: X-RateLimit-Reset
+	RetryAfter string // Default: Retry-After
+}
+
 func LimitAll(requestLimit int, windowLength time.Duration) func(next http.Handler) http.Handler {
 	return Limit(requestLimit, windowLength)
 }
@@ -87,6 +96,12 @@ func WithLimitHandler(h http.HandlerFunc) Option {
 func WithLimitCounter(c LimitCounter) Option {
 	return func(rl *rateLimiter) {
 		rl.limitCounter = c
+	}
+}
+
+func WithResponseHeaders(headers ResponseHeaders) Option {
+	return func(rl *rateLimiter) {
+		rl.headers = headers
 	}
 }
 
