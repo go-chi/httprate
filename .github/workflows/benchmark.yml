@@ -1,0 +1,51 @@
+name: Bechmark
+
+on:
+  pull_request:
+
+jobs:
+  benchmark:
+    name: Benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ^1.22
+        id: go
+
+      - name: Git clone (master)
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Run benchmark (master)
+        run: go test -bench=. -benchtime=100x -benchmem | tee master.txt
+
+      - name: Git clone (PR)
+        uses: actions/checkout@v4
+
+      - name: Run benchmark (PR)
+        run: go test -bench=. -benchtime=100x -benchmem | tee pr.txt
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run benchstat
+        run: benchstat master.txt pr.txt | tee result.txt
+
+      - name: Comment on PR with benchmark results
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('result.txt', 'utf8');
+            const issue_number = context.payload.pull_request.number;
+            const { owner, repo } = context.repo;
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: `### Benchmark Results\n\n\`\`\`\n${results}\n\`\`\``
+            });
