@@ -189,6 +189,86 @@ func TestResponseHeaders(t *testing.T) {
 	}
 }
 
+func TestCustomResponseHeaders(t *testing.T) {
+	type test struct {
+		name    string
+		headers httprate.ResponseHeaders
+	}
+	tests := []test{
+		{
+			name: "no headers",
+			headers: httprate.ResponseHeaders{
+				Limit:      "",
+				Remaining:  "",
+				Reset:      "",
+				RetryAfter: "",
+				Increment:  "",
+			},
+		},
+		{
+			name: "custom headers",
+			headers: httprate.ResponseHeaders{
+				Limit:      "RateLimit-Limit",
+				Remaining:  "RateLimit-Remaining",
+				Reset:      "RateLimit-Reset",
+				RetryAfter: "RateLimit-Retry",
+				Increment:  "",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+			router := httprate.Limit(
+				1,
+				time.Minute,
+				httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, "Wow Slow Down Kiddo", 429)
+				}),
+				httprate.WithResponseHeaders(tt.headers),
+			)(h)
+
+			req := httptest.NewRequest("GET", "/", nil)
+
+			// Force Retry-After and X-RateLimit-Increment headers.
+			req = req.WithContext(httprate.WithIncrement(req.Context(), 2))
+
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, req)
+
+			headers := recorder.Result().Header
+
+			for _, header := range []string{
+				"X-RateLimit-Limit",
+				"X-RateLimit-Remaining",
+				"X-RateLimit-Increment",
+				"X-RateLimit-Reset",
+				"Retry-After",
+				"", // ensure we don't set header with an empty key
+			} {
+				if len(headers.Values(header)) != 0 {
+					t.Errorf("%q header not expected", header)
+				}
+			}
+
+			for _, header := range []string{
+				tt.headers.Limit,
+				tt.headers.Remaining,
+				tt.headers.Increment,
+				tt.headers.Reset,
+				tt.headers.RetryAfter,
+			} {
+				if header == "" {
+					continue
+				}
+				if h := headers.Get(header); h == "" {
+					t.Errorf("%q header expected", header)
+				}
+			}
+		})
+	}
+}
+
 func TestLimitHandler(t *testing.T) {
 	type test struct {
 		name          string
