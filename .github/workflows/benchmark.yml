@@ -20,13 +20,13 @@ jobs:
           ref: master
 
       - name: Run benchmark (master)
-        run: go test -bench=. -benchtime=100x -benchmem | tee /tmp/master.txt
+        run: go test -bench=. -count=10 -benchmem | tee /tmp/master.txt
 
       - name: Git clone (PR)
         uses: actions/checkout@v4
 
       - name: Run benchmark (PR)
-        run: go test -bench=. -benchtime=100x -benchmem | tee /tmp/pr.txt
+        run: go test -bench=. -count=10 -benchmem | tee /tmp/pr.txt
 
       - name: Install benchstat
         run: go install golang.org/x/perf/cmd/benchstat@latest
