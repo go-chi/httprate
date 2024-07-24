@@ -238,36 +238,32 @@ func TestCustomResponseHeaders(t *testing.T) {
 
 			headers := recorder.Result().Header
 
-			if len(headers.Values("X-RateLimit-Limit")) != 0 {
-				t.Errorf("X-RateLimit-Limit header not expected")
-			}
-			if len(headers.Values("X-RateLimit-Remaining")) != 0 {
-				t.Errorf("X-RateLimit-Remaining header not expected")
-			}
-			if len(headers.Values("X-RateLimit-Reset")) != 0 {
-				t.Errorf("X-RateLimit-Reset header not expected")
-			}
-			if len(headers.Values("Retry-After")) != 0 {
-				t.Errorf("Retry-After header not expected")
-			}
-			if len(headers.Values("")) != 0 {
-				t.Errorf("'' header not expected")
+			for _, header := range []string{
+				"X-RateLimit-Limit",
+				"X-RateLimit-Remaining",
+				"X-RateLimit-Increment",
+				"X-RateLimit-Reset",
+				"Retry-After",
+				"", // ensure we don't set header with an empty key
+			} {
+				if len(headers.Values(header)) != 0 {
+					t.Errorf("%q header not expected", header)
+				}
 			}
 
-			if h := headers.Get(tt.headers.Limit); tt.headers.Limit != "" && h == "" {
-				t.Errorf("%s header expected", tt.headers.Limit)
-			}
-			if h := headers.Get(tt.headers.Remaining); tt.headers.Remaining != "" && h == "" {
-				t.Errorf("%s header expected", tt.headers.Remaining)
-			}
-			if h := headers.Get(tt.headers.Increment); tt.headers.Increment != "" && h == "" {
-				t.Errorf("%s header expected", tt.headers.Increment)
-			}
-			if h := headers.Get(tt.headers.Reset); tt.headers.Reset != "" && h == "" {
-				t.Errorf("%s header expected", tt.headers.Reset)
-			}
-			if h := headers.Get(tt.headers.RetryAfter); tt.headers.RetryAfter != "" && h == "" {
-				t.Errorf("%s header expected", tt.headers.RetryAfter)
+			for _, header := range []string{
+				tt.headers.Limit,
+				tt.headers.Remaining,
+				tt.headers.Increment,
+				tt.headers.Reset,
+				tt.headers.RetryAfter,
+			} {
+				if header == "" {
+					continue
+				}
+				if h := headers.Get(header); h == "" {
+					t.Errorf("%q header expected", header)
+				}
 			}
 		})
 	}
