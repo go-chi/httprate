@@ -250,20 +250,25 @@ func TestCustomResponseHeaders(t *testing.T) {
 			if len(headers.Values("Retry-After")) != 0 {
 				t.Errorf("Retry-After header not expected")
 			}
-
-			if h := headers.Get(tt.headers.Limit); h == "" {
-				t.Errorf("%s header expected", tt.headers.Limit)
+			if len(headers.Values("")) != 0 {
+				t.Errorf("'' header not expected")
 			}
-			if h := headers.Get(tt.headers.Remaining); h == "" {
+
+			if h := headers.Get(tt.headers.Limit); tt.headers.Limit != "" && h == "" {
+				t.Errorf("%s header expected", tt.headers.Limit)
+			} else {
+				t.Errorf("headers.Get(%v): %v", tt.headers.Limit, h)
+			}
+			if h := headers.Get(tt.headers.Remaining); tt.headers.Remaining != "" && h == "" {
 				t.Errorf("%s header expected", tt.headers.Remaining)
 			}
-			if h := headers.Get(tt.headers.Increment); h == "" {
+			if h := headers.Get(tt.headers.Increment); tt.headers.Increment != "" && h == "" {
 				t.Errorf("%s header expected", tt.headers.Increment)
 			}
-			if h := headers.Get(tt.headers.Reset); h == "" {
+			if h := headers.Get(tt.headers.Reset); tt.headers.Reset != "" && h == "" {
 				t.Errorf("%s header expected", tt.headers.Reset)
 			}
-			if h := headers.Get(tt.headers.RetryAfter); h == "" {
+			if h := headers.Get(tt.headers.RetryAfter); tt.headers.RetryAfter != "" && h == "" {
 				t.Errorf("%s header expected", tt.headers.RetryAfter)
 			}
 		})
