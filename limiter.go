@@ -91,33 +91,37 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
 
 		l.mu.Lock()
-		_, rate, err := l.calculateRate(key, limit)
+		_, rateFloat, err := l.calculateRate(key, limit)
 		if err != nil {
 			l.mu.Unlock()
 			http.Error(w, err.Error(), http.StatusPreconditionRequired)
 			return
 		}
-		nrate := int(math.Round(rate))
-		incr := getIncrement(r.Context())
+		rate := int(math.Round(rateFloat))
 
-		if limit > nrate {
-			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", limit-nrate-incr))
+		increment := getIncrement(r.Context())
+		if increment > 1 {
+			w.Header().Set("X-RateLimit-Increment", fmt.Sprintf("%d", increment))
 		}
 
-		if nrate >= limit {
+		if rate+increment > limit {
+			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", limit-rate))
+
 			l.mu.Unlock()
 			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
 			l.onRequestLimit(w, r)
 			return
 		}
 
-		err = l.limitCounter.IncrementBy(key, currentWindow, incr)
+		err = l.limitCounter.IncrementBy(key, currentWindow, increment)
 		if err != nil {
 			l.mu.Unlock()
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		l.mu.Unlock()
+
+		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", limit-rate-increment))
 
 		next.ServeHTTP(w, r)
 	})
