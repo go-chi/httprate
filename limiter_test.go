@@ -256,8 +256,6 @@ func TestCustomResponseHeaders(t *testing.T) {
 
 			if h := headers.Get(tt.headers.Limit); tt.headers.Limit != "" && h == "" {
 				t.Errorf("%s header expected", tt.headers.Limit)
-			} else {
-				t.Errorf("headers.Get(%v): %v", tt.headers.Limit, h)
 			}
 			if h := headers.Get(tt.headers.Remaining); tt.headers.Remaining != "" && h == "" {
 				t.Errorf("%s header expected", tt.headers.Remaining)

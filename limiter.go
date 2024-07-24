@@ -94,8 +94,8 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		if val := getRequestLimit(ctx); val > 0 {
 			limit = val
 		}
-		w.Header().Set(l.headers.Limit, fmt.Sprintf("%d", limit))
-		w.Header().Set(l.headers.Reset, fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
+		setHeader(w, l.headers.Limit, fmt.Sprintf("%d", limit))
+		setHeader(w, l.headers.Reset, fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
 
 		l.mu.Lock()
 		_, rateFloat, err := l.calculateRate(key, limit)
@@ -108,14 +108,14 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 
 		increment := getIncrement(r.Context())
 		if increment > 1 {
-			w.Header().Set(l.headers.Increment, fmt.Sprintf("%d", increment))
+			setHeader(w, l.headers.Increment, fmt.Sprintf("%d", increment))
 		}
 
 		if rate+increment > limit {
-			w.Header().Set(l.headers.Remaining, fmt.Sprintf("%d", limit-rate))
+			setHeader(w, l.headers.Remaining, fmt.Sprintf("%d", limit-rate))
 
 			l.mu.Unlock()
-			w.Header().Set(l.headers.RetryAfter, fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
+			setHeader(w, l.headers.RetryAfter, fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
 			l.onRequestLimit(w, r)
 			return
 		}
@@ -128,7 +128,7 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		}
 		l.mu.Unlock()
 
-		w.Header().Set(l.headers.Remaining, fmt.Sprintf("%d", limit-rate-increment))
+		setHeader(w, l.headers.Remaining, fmt.Sprintf("%d", limit-rate-increment))
 
 		next.ServeHTTP(w, r)
 	})
@@ -232,4 +232,10 @@ func LimitCounterKey(key string, window time.Time) uint64 {
 	h.WriteString(key)
 	h.WriteString(fmt.Sprintf("%d", window.Unix()))
 	return h.Sum64()
+}
+
+func setHeader(w http.ResponseWriter, key string, value string) {
+	if key != "" {
+		w.Header().Set(key, value)
+	}
 }
