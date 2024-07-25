@@ -1,4 +1,4 @@
-package httprate
+package httprate_test
 
 import (
 	"fmt"
@@ -7,18 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/httprate"
 	"golang.org/x/sync/errgroup"
 )
 
 func TestLocalCounter(t *testing.T) {
-	limitCounter := &localCounter{
-		latestWindow:     time.Now().UTC().Truncate(time.Minute),
-		latestCounters:   make(map[uint64]int),
-		previousCounters: make(map[uint64]int),
-		windowLength:     time.Minute,
-	}
-
-	limitCounter.Config(1000, time.Minute)
+	limitCounter := httprate.NewLocalLimitCounter(time.Minute)
 
 	currentWindow := time.Now().UTC().Truncate(time.Minute)
 	previousWindow := currentWindow.Add(-time.Minute)
@@ -146,12 +140,7 @@ func TestLocalCounter(t *testing.T) {
 }
 
 func BenchmarkLocalCounter(b *testing.B) {
-	limitCounter := &localCounter{
-		latestWindow:     time.Now().UTC().Truncate(time.Minute),
-		latestCounters:   make(map[uint64]int),
-		previousCounters: make(map[uint64]int),
-		windowLength:     time.Minute,
-	}
+	limitCounter := httprate.NewLocalLimitCounter(time.Minute)
 
 	currentWindow := time.Now().UTC().Truncate(time.Minute)
 	previousWindow := currentWindow.Add(-time.Minute)
