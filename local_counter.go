@@ -68,23 +68,6 @@ func (c *localCounter) Increment(key string, currentWindow time.Time) error {
 	return c.IncrementBy(key, currentWindow, 1)
 }
 
-func (c *localCounter) evict(currentWindow time.Time) {
-	if c.latestWindow == currentWindow {
-		return
-	}
-
-	previousWindow := currentWindow.Add(-c.windowLength)
-	if c.latestWindow == previousWindow {
-		c.latestWindow = currentWindow
-		c.latestCounters, c.previousCounters = make(map[uint64]int), c.latestCounters
-		return
-	}
-
-	c.latestWindow = currentWindow
-	// NOTE: Don't use clear() to be compatible with older version of Go.
-	c.previousCounters, c.latestCounters = make(map[uint64]int), make(map[uint64]int)
-}
-
 func limitCounterKey(key string) uint64 {
 	h := xxhash.New()
 	h.WriteString(key)
