@@ -16,10 +16,6 @@ type LimitCounter interface {
 }
 
 func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Option) *rateLimiter {
-	return newRateLimiter(requestLimit, windowLength, options...)
-}
-
-func newRateLimiter(requestLimit int, windowLength time.Duration, options ...Option) *rateLimiter {
 	rl := &rateLimiter{
 		requestLimit: requestLimit,
 		windowLength: windowLength,
@@ -43,14 +39,10 @@ func newRateLimiter(requestLimit int, windowLength time.Duration, options ...Opt
 	}
 
 	if rl.limitCounter == nil {
-		rl.limitCounter = &localCounter{
-			latestWindow:     time.Now().UTC().Truncate(windowLength),
-			latestCounters:   make(map[uint64]int),
-			previousCounters: make(map[uint64]int),
-			windowLength:     windowLength,
-		}
+		rl.limitCounter = NewLocalLimitCounter(windowLength)
+	} else {
+		rl.limitCounter.Config(requestLimit, windowLength)
 	}
-	rl.limitCounter.Config(requestLimit, windowLength)
 
 	if rl.onRequestLimit == nil {
 		rl.onRequestLimit = func(w http.ResponseWriter, r *http.Request) {

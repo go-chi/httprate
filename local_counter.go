@@ -7,25 +7,25 @@ import (
 	"github.com/cespare/xxhash/v2"
 )
 
-var _ LimitCounter = &localCounter{}
+// NewLocalLimitCounter creates an instance of localCounter,
+// which is an in-memory implementation of http.LimitCounter.
+func NewLocalLimitCounter(windowLength time.Duration) *localCounter {
+	return &localCounter{
+		windowLength:     windowLength,
+		latestWindow:     time.Now().UTC().Truncate(windowLength),
+		latestCounters:   make(map[uint64]int),
+		previousCounters: make(map[uint64]int),
+	}
+}
+
+var _ LimitCounter = (*localCounter)(nil)
 
 type localCounter struct {
-	latestWindow     time.Time
-	previousCounters map[uint64]int
-	latestCounters   map[uint64]int
 	windowLength     time.Duration
+	latestWindow     time.Time
+	latestCounters   map[uint64]int
+	previousCounters map[uint64]int
 	mu               sync.RWMutex
-}
-
-func (c *localCounter) Config(requestLimit int, windowLength time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.windowLength = windowLength
-}
-
-func (c *localCounter) Increment(key string, currentWindow time.Time) error {
-	return c.IncrementBy(key, currentWindow, 1)
 }
 
 func (c *localCounter) IncrementBy(key string, currentWindow time.Time, amount int) error {
@@ -60,6 +60,14 @@ func (c *localCounter) Get(key string, currentWindow, previousWindow time.Time) 
 	return 0, 0, nil
 }
 
+// Config implements LimitCounter but is redundant.
+func (c *localCounter) Config(requestLimit int, windowLength time.Duration) {}
+
+// Increment implements LimitCounter but is redundant.
+func (c *localCounter) Increment(key string, currentWindow time.Time) error {
+	return c.IncrementBy(key, currentWindow, 1)
+}
+
 func (c *localCounter) evict(currentWindow time.Time) {
 	if c.latestWindow == currentWindow {
 		return
@@ -73,7 +81,7 @@ func (c *localCounter) evict(currentWindow time.Time) {
 	}
 
 	c.latestWindow = currentWindow
-	// NOTE: Don't use clear() to keep backward-compatibility.
+	// NOTE: Don't use clear() to be compatible with older version of Go.
 	c.previousCounters, c.latestCounters = make(map[uint64]int), make(map[uint64]int)
 }
 
