@@ -1,16 +1,24 @@
-# httprate
+# httprate - HTTP Rate Limiter
 
-![](https://github.com/go-chi/httprate/workflows/build/badge.svg?branch=master)
+![CI workflow](https://github.com/go-chi/httprate/actions/workflows/ci.yml/badge.svg)
+![Benchmark workflow](https://github.com/go-chi/httprate/actions/workflows/benchmark.yml/badge.svg)
+[![GoDoc Widget]][GoDoc]
 
-net/http request rate limiter based on the Sliding Window Counter pattern inspired by
-CloudFlare https://blog.cloudflare.com/counting-things-a-lot-of-different-things/.
+[GoDoc]: https://pkg.go.dev/github.com/go-chi/httprate
+[GoDoc Widget]: https://godoc.org/github.com/go-chi/httprate?status.svg
+
+`net/http` request rate limiter based on the Sliding Window Counter pattern inspired by
+CloudFlare https://blog.cloudflare.com/counting-things-a-lot-of-different-things.
 
 The sliding window counter pattern is accurate, smooths traffic and offers a simple counter
 design to share a rate-limit among a cluster of servers. For example, if you'd like
 to use redis to coordinate a rate-limit across a group of microservices you just need
-to implement the httprate.LimitCounter interface to support an atomic increment
-and get. 
+to implement the `httprate.LimitCounter` interface to support an atomic increment and get.
 
+## Backends
+
+- [x] In-memory (built into this package)
+- [x] Redis: https://github.com/go-chi/httprate-redis
 
 ## Example
 
@@ -107,11 +115,6 @@ r.Use(httprate.Limit(
 	httprate.WithResponseHeaders(httprate.ResponseHeaders{}),
 ))
 ```
-
-## Related packages
-
-Redis backend for httprate: https://github.com/go-chi/httprate-redis
-
 
 ## LICENSE
 
