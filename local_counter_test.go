@@ -12,14 +12,16 @@ import (
 
 func TestLocalCounter(t *testing.T) {
 	limitCounter := &localCounter{
-		latestWindow:     time.Now().UTC().Truncate(time.Second),
+		latestWindow:     time.Now().UTC().Truncate(time.Minute),
 		latestCounters:   make(map[uint64]int),
 		previousCounters: make(map[uint64]int),
-		windowLength:     time.Second,
+		windowLength:     time.Minute,
 	}
 
-	currentWindow := time.Now().UTC().Truncate(time.Second)
-	previousWindow := currentWindow.Add(-time.Second)
+	limitCounter.Config(1000, time.Minute)
+
+	currentWindow := time.Now().UTC().Truncate(time.Minute)
+	previousWindow := currentWindow.Add(-time.Minute)
 
 	type test struct {
 		name        string        // In each test do the following:
@@ -31,67 +33,67 @@ func TestLocalCounter(t *testing.T) {
 
 	tests := []test{
 		{
-			name: "t=0s: init",
+			name: "t=0m: init",
 			prev: 0,
 			curr: 0,
 		},
 		{
-			name:   "t=0s: increment 1",
+			name:   "t=0m: increment 1",
 			incrBy: 1,
 			prev:   0,
 			curr:   1,
 		},
 		{
-			name:   "t=0s: increment by 99",
+			name:   "t=0m: increment by 99",
 			incrBy: 99,
 			prev:   0,
 			curr:   100,
 		},
 		{
-			name:        "t=1s: move clock by 1s",
-			advanceTime: time.Second,
+			name:        "t=1m: move clock by 1m",
+			advanceTime: time.Minute,
 			prev:        100,
 			curr:        0,
 		},
 		{
-			name:   "t=1s: increment by 20",
+			name:   "t=1m: increment by 20",
 			incrBy: 20,
 			prev:   100,
 			curr:   20,
 		},
 		{
-			name:   "t=1s: increment by 20",
+			name:   "t=1m: increment by 20",
 			incrBy: 20,
 			prev:   100,
 			curr:   40,
 		},
 		{
-			name:        "t=2s: move clock by 1s",
-			advanceTime: time.Second,
+			name:        "t=2m: move clock by 1m",
+			advanceTime: time.Minute,
 			prev:        40,
 			curr:        0,
 		},
 		{
-			name:   "t=2s: incr++",
+			name:   "t=2m: incr++",
 			incrBy: 1,
 			prev:   40,
 			curr:   1,
 		},
 		{
-			name:   "t=2s: incr+=9",
+			name:   "t=2m: incr+=9",
 			incrBy: 9,
 			prev:   40,
 			curr:   10,
 		},
 		{
-			name:   "t=2s: incr+=20",
+			name:   "t=2m: incr+=20",
 			incrBy: 20,
 			prev:   40,
 			curr:   30,
 		},
 		{
-			name:        "t=4s: move clock by 2s",
-			advanceTime: 2 * time.Second,
+			name:        "t=4m: move clock by 2m",
+			advanceTime: 2 * time.Minute,
 			prev:        0,
 			curr:        0,
 		},
@@ -145,22 +147,22 @@ func TestLocalCounter(t *testing.T) {
 
 func BenchmarkLocalCounter(b *testing.B) {
 	limitCounter := &localCounter{
-		latestWindow:     time.Now().UTC().Truncate(time.Second),
+		latestWindow:     time.Now().UTC().Truncate(time.Minute),
 		latestCounters:   make(map[uint64]int),
 		previousCounters: make(map[uint64]int),
-		windowLength:     time.Second,
+		windowLength:     time.Minute,
 	}
 
-	currentWindow := time.Now().UTC().Truncate(time.Second)
-	previousWindow := currentWindow.Add(-time.Second)
+	currentWindow := time.Now().UTC().Truncate(time.Minute)
+	previousWindow := currentWindow.Add(-time.Minute)
 
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		for i := range []int{0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 1, 0} {
 			// Simulate time.
-			currentWindow.Add(time.Duration(i) * time.Second)
-			previousWindow.Add(time.Duration(i) * time.Second)
+			currentWindow.Add(time.Duration(i) * time.Minute)
+			previousWindow.Add(time.Duration(i) * time.Minute)
 
 			wg := sync.WaitGroup{}
 			wg.Add(1000)

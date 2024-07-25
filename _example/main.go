@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -14,11 +15,6 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
-	// Overall rate-limiter, keyed by IP and URL path (aka endpoint).
-	//
-	// This means each user (by IP) will receive a unique limit counter per endpoint.
-	// r.Use(httprate.Limit(10, 10*time.Second, httprate.WithKeyFuncs(httprate.KeyByIP, httprate.KeyByEndpoint)))
-
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -30,7 +26,7 @@ func main() {
 		// Here we set a specific rate limit by ip address and userID
 		r.Use(httprate.Limit(
 			10,
-			10*time.Second,
+			time.Minute,
 			httprate.WithKeyFuncs(httprate.KeyByIP, func(r *http.Request) (string, error) {
 				token := r.Context().Value("userID").(string)
 				return token, nil
@@ -44,21 +40,27 @@ func main() {
 		))
 
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("admin."))
+			w.Write([]byte("10 req/min\n"))
 		})
 	})
 
 	r.Group(func(r chi.Router) {
-		// Here we set another rate limit for a group of handlers.
+		// Here we set another rate limit (3 req/min) for a group of handlers.
 		//
 		// Note: in practice you don't need to have so many layered rate-limiters,
 		// but the example here is to illustrate how to control the machinery.
-		r.Use(httprate.LimitByIP(3, 5*time.Second))
+		r.Use(httprate.LimitByIP(3, time.Minute))
 
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("."))
+			w.Write([]byte("3 req/min\n"))
 		})
 	})
+
+	log.Printf("Serving at localhost:3333")
+	log.Println()
+	log.Printf("Try running:")
+	log.Printf("curl -v http://localhost:3333")
+	log.Printf("curl -v http://localhost:3333/admin")
 
 	http.ListenAndServe(":3333", r)
 }
