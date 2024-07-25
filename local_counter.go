@@ -1,7 +1,6 @@
 package httprate
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -11,15 +10,11 @@ import (
 var _ LimitCounter = &localCounter{}
 
 type localCounter struct {
-	counters     map[uint64]*count
-	windowLength time.Duration
-	lastEvict    time.Time
-	mu           sync.RWMutex
-}
-
-type count struct {
-	value     int
-	updatedAt time.Time
+	latestWindow     time.Time
+	previousCounters map[uint64]int
+	latestCounters   map[uint64]int
+	windowLength     time.Duration
+	mu               sync.RWMutex
 }
 
 func (c *localCounter) Config(requestLimit int, windowLength time.Duration) {
@@ -37,17 +32,12 @@ func (c *localCounter) IncrementBy(key string, currentWindow time.Time, amount i
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.evict()
+	c.evict(currentWindow)
 
-	hkey := LimitCounterKey(key, currentWindow)
+	hkey := limitCounterKey(key, currentWindow)
 
-	v, ok := c.counters[hkey]
-	if !ok {
-		v = &count{}
-		c.counters[hkey] = v
-	}
-	v.value += amount
-	v.updatedAt = time.Now()
+	count, _ := c.latestCounters[hkey]
+	c.latestCounters[hkey] = count + amount
 
 	return nil
 }
@@ -56,36 +46,39 @@ func (c *localCounter) Get(key string, currentWindow, previousWindow time.Time) 
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	curr, ok := c.counters[LimitCounterKey(key, currentWindow)]
-	if !ok {
-		curr = &count{value: 0, updatedAt: time.Now()}
-	}
-	prev, ok := c.counters[LimitCounterKey(key, previousWindow)]
-	if !ok {
-		prev = &count{value: 0, updatedAt: time.Now()}
+	if c.latestWindow == currentWindow {
+		curr, _ := c.latestCounters[limitCounterKey(key, currentWindow)]
+		prev, _ := c.previousCounters[limitCounterKey(key, previousWindow)]
+		return curr, prev, nil
 	}
 
-	return curr.value, prev.value, nil
+	if c.latestWindow == previousWindow {
+		prev, _ := c.latestCounters[limitCounterKey(key, previousWindow)]
+		return 0, prev, nil
+	}
+
+	return 0, 0, nil
 }
 
-func (c *localCounter) evict() {
-	d := c.windowLength * 3
-
-	if time.Since(c.lastEvict) < d {
+func (c *localCounter) evict(currentWindow time.Time) {
+	if c.latestWindow == currentWindow {
 		return
 	}
-	c.lastEvict = time.Now()
 
-	for k, v := range c.counters {
-		if time.Since(v.updatedAt) >= d {
-			delete(c.counters, k)
-		}
+	previousWindow := currentWindow.Add(-c.windowLength)
+	if c.latestWindow == previousWindow {
+		c.latestWindow = currentWindow
+		c.latestCounters, c.previousCounters = make(map[uint64]int), c.latestCounters
+		return
 	}
+
+	c.latestWindow = currentWindow
+	// NOTE: Don't use clear() to keep backward-compatibility.
+	c.previousCounters, c.latestCounters = make(map[uint64]int), make(map[uint64]int)
 }
 
-func LimitCounterKey(key string, window time.Time) uint64 {
+func limitCounterKey(key string, window time.Time) uint64 {
 	h := xxhash.New()
 	h.WriteString(key)
-	h.WriteString(fmt.Sprintf("%d", window.Unix()))
 	return h.Sum64()
 }
