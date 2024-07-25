@@ -22,7 +22,10 @@ jobs:
         run: go get -v -t -d ./...
 
       - name: Build
-        run: go build -v .
+        run: go build -v ./
+
+      - name: Build example
+        run: cd ./_example && go build -v ./
 
       - name: Test
         run: go test -v ./...
