@@ -34,7 +34,7 @@ func (c *localCounter) IncrementBy(key string, currentWindow time.Time, amount i
 
 	c.evict(currentWindow)
 
-	hkey := limitCounterKey(key, currentWindow)
+	hkey := limitCounterKey(key)
 
 	count, _ := c.latestCounters[hkey]
 	c.latestCounters[hkey] = count + amount
@@ -47,13 +47,13 @@ func (c *localCounter) Get(key string, currentWindow, previousWindow time.Time) 
 	defer c.mu.RUnlock()
 
 	if c.latestWindow == currentWindow {
-		curr, _ := c.latestCounters[limitCounterKey(key, currentWindow)]
-		prev, _ := c.previousCounters[limitCounterKey(key, previousWindow)]
+		curr, _ := c.latestCounters[limitCounterKey(key)]
+		prev, _ := c.previousCounters[limitCounterKey(key)]
 		return curr, prev, nil
 	}
 
 	if c.latestWindow == previousWindow {
-		prev, _ := c.latestCounters[limitCounterKey(key, previousWindow)]
+		prev, _ := c.latestCounters[limitCounterKey(key)]
 		return 0, prev, nil
 	}
 
@@ -77,7 +77,7 @@ func (c *localCounter) evict(currentWindow time.Time) {
 	c.previousCounters, c.latestCounters = make(map[uint64]int), make(map[uint64]int)
 }
 
-func limitCounterKey(key string, window time.Time) uint64 {
+func limitCounterKey(key string) uint64 {
 	h := xxhash.New()
 	h.WriteString(key)
 	return h.Sum64()
