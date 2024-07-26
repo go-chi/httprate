@@ -44,23 +44,26 @@ func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Opt
 		rl.limitCounter.Config(requestLimit, windowLength)
 	}
 
-	if rl.onRequestLimit == nil {
-		rl.onRequestLimit = func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
-		}
+	if rl.onRateLimited == nil {
+		rl.onRateLimited = onRateLimited
+	}
+
+	if rl.onError == nil {
+		rl.onError = onError
 	}
 
 	return rl
 }
 
 type rateLimiter struct {
-	requestLimit   int
-	windowLength   time.Duration
-	keyFn          KeyFunc
-	limitCounter   LimitCounter
-	onRequestLimit http.HandlerFunc
-	headers        ResponseHeaders
-	mu             sync.Mutex
+	requestLimit  int
+	windowLength  time.Duration
+	keyFn         KeyFunc
+	limitCounter  LimitCounter
+	onRateLimited http.HandlerFunc
+	onError       func(http.ResponseWriter, *http.Request, error)
+	headers       ResponseHeaders
+	mu            sync.Mutex
 }
 
 func (l *rateLimiter) Counter() LimitCounter {
@@ -75,7 +78,7 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key, err := l.keyFn(r)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusPreconditionRequired)
+			l.onError(w, r, err)
 			return
 		}
 
@@ -93,7 +96,7 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 		_, rateFloat, err := l.calculateRate(key, limit)
 		if err != nil {
 			l.mu.Unlock()
-			http.Error(w, err.Error(), http.StatusPreconditionRequired)
+			l.onError(w, r, err)
 			return
 		}
 		rate := int(math.Round(rateFloat))
@@ -108,14 +111,14 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 
 			l.mu.Unlock()
 			setHeader(w, l.headers.RetryAfter, fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
-			l.onRequestLimit(w, r)
+			l.onRateLimited(w, r)
 			return
 		}
 
 		err = l.limitCounter.IncrementBy(key, currentWindow, increment)
 		if err != nil {
 			l.mu.Unlock()
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			l.onError(w, r, err)
 			return
 		}
 		l.mu.Unlock()
@@ -149,4 +152,12 @@ func setHeader(w http.ResponseWriter, key string, value string) {
 	if key != "" {
 		w.Header().Set(key, value)
 	}
+}
+
+func onRateLimited(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+}
+
+func onError(w http.ResponseWriter, r *http.Request, err error) {
+	http.Error(w, err.Error(), http.StatusPreconditionRequired)
 }

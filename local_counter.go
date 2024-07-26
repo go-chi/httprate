@@ -9,6 +9,8 @@ import (
 
 // NewLocalLimitCounter creates an instance of localCounter,
 // which is an in-memory implementation of http.LimitCounter.
+//
+// All methods are guaranteed to always return nil error.
 func NewLocalLimitCounter(windowLength time.Duration) *localCounter {
 	return &localCounter{
 		windowLength:     windowLength,
@@ -60,10 +62,11 @@ func (c *localCounter) Get(key string, currentWindow, previousWindow time.Time) 
 	return 0, 0, nil
 }
 
-// Config implements LimitCounter but is redundant.
-func (c *localCounter) Config(requestLimit int, windowLength time.Duration) {}
+func (c *localCounter) Config(requestLimit int, windowLength time.Duration) {
+	c.windowLength = windowLength
+	c.latestWindow = time.Now().UTC().Truncate(windowLength)
+}
 
-// Increment implements LimitCounter but is redundant.
 func (c *localCounter) Increment(key string, currentWindow time.Time) error {
 	return c.IncrementBy(key, currentWindow, 1)
 }
