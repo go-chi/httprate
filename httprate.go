@@ -89,7 +89,13 @@ func WithKeyByRealIP() Option {
 
 func WithLimitHandler(h http.HandlerFunc) Option {
 	return func(rl *rateLimiter) {
-		rl.onRequestLimit = h
+		rl.onRateLimited = h
+	}
+}
+
+func WithErrorHandler(h func(http.ResponseWriter, *http.Request, error)) Option {
+	return func(rl *rateLimiter) {
+		rl.onError = h
 	}
 }
 

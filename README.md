@@ -17,8 +17,8 @@ to implement the `httprate.LimitCounter` interface to support an atomic incremen
 
 ## Backends
 
-- [x] In-memory (built into this package)
-- [x] Redis: https://github.com/go-chi/httprate-redis
+- [x] Local in-memory backend (default)
+- [x] Redis backend: https://github.com/go-chi/httprate-redis
 
 ## Example
 
@@ -85,12 +85,30 @@ r.Use(httprate.Limit(
 	10,
 	time.Minute,
 	httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "some specific response here", http.StatusTooManyRequests)
+		http.Error(w, `{"error": "Rate limited. Please slow down."}`, http.StatusTooManyRequests)
 	}),
 ))
 ```
 
-### Customize response headers
+### Send specific response for errors returned by the LimitCounter implementation
+
+```go
+r.Use(httprate.Limit(
+	10,
+	time.Minute,
+	httprate.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
+		// NOTE: The local in-memory counter is guaranteed not return any errors.
+		// Other backends may return errors, depending on whether they have
+		// in-memory fallback mechanism implemented in case of network errors. 
+
+		http.Error(w, fmt.Sprintf(`{"error": %q}`, err), http.StatusPreconditionRequired)
+	}),
+	httprate.WithLimitCounter(customBackend),
+))
+```
+
+
+### Send custom custom response headers
 
 ```go
 r.Use(httprate.Limit(
