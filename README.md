@@ -90,7 +90,7 @@ r.Use(httprate.Limit(
 ))
 ```
 
-### Send specific response for errors returned by the LimitCounter implementation
+### Send specific response for backend errors
 
 ```go
 r.Use(httprate.Limit(
@@ -108,7 +108,7 @@ r.Use(httprate.Limit(
 ```
 
 
-### Send custom custom response headers
+### Send custom response headers
 
 ```go
 r.Use(httprate.Limit(
