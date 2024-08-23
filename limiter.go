@@ -15,8 +15,8 @@ type LimitCounter interface {
 	Get(key string, currentWindow, previousWindow time.Time) (int, int, error)
 }
 
-func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Option) *rateLimiter {
-	rl := &rateLimiter{
+func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Option) *RateLimiter {
+	rl := &RateLimiter{
 		requestLimit: requestLimit,
 		windowLength: windowLength,
 		headers: ResponseHeaders{
@@ -55,7 +55,7 @@ func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Opt
 	return rl
 }
 
-type rateLimiter struct {
+type RateLimiter struct {
 	requestLimit  int
 	windowLength  time.Duration
 	keyFn         KeyFunc
@@ -70,7 +70,7 @@ type rateLimiter struct {
 // and automatically sends HTTP response. The caller should halt further request processing.
 // If the limit is not reached, it increments the request count and returns false, allowing
 // the request to proceed.
-func (l *rateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string) bool {
+func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string) bool {
 	currentWindow := time.Now().UTC().Truncate(l.windowLength)
 	ctx := r.Context()
 
@@ -116,15 +116,15 @@ func (l *rateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 	return false
 }
 
-func (l *rateLimiter) Counter() LimitCounter {
+func (l *RateLimiter) Counter() LimitCounter {
 	return l.limitCounter
 }
 
-func (l *rateLimiter) Status(key string) (bool, float64, error) {
+func (l *RateLimiter) Status(key string) (bool, float64, error) {
 	return l.calculateRate(key, l.requestLimit)
 }
 
-func (l *rateLimiter) Handler(next http.Handler) http.Handler {
+func (l *RateLimiter) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key, err := l.keyFn(r)
 		if err != nil {
@@ -140,7 +140,7 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 	})
 }
 
-func (l *rateLimiter) calculateRate(key string, requestLimit int) (bool, float64, error) {
+func (l *RateLimiter) calculateRate(key string, requestLimit int) (bool, float64, error) {
 	now := time.Now().UTC()
 	currentWindow := now.Truncate(l.windowLength)
 	previousWindow := currentWindow.Add(-l.windowLength)

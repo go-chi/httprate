@@ -12,7 +12,7 @@ func Limit(requestLimit int, windowLength time.Duration, options ...Option) func
 }
 
 type KeyFunc func(r *http.Request) (string, error)
-type Option func(rl *rateLimiter)
+type Option func(rl *RateLimiter)
 
 // Set custom response headers. If empty, the header is omitted.
 type ResponseHeaders struct {
@@ -72,7 +72,7 @@ func KeyByEndpoint(r *http.Request) (string, error) {
 }
 
 func WithKeyFuncs(keyFuncs ...KeyFunc) Option {
-	return func(rl *rateLimiter) {
+	return func(rl *RateLimiter) {
 		if len(keyFuncs) > 0 {
 			rl.keyFn = composedKeyFunc(keyFuncs...)
 		}
@@ -88,31 +88,31 @@ func WithKeyByRealIP() Option {
 }
 
 func WithLimitHandler(h http.HandlerFunc) Option {
-	return func(rl *rateLimiter) {
+	return func(rl *RateLimiter) {
 		rl.onRateLimited = h
 	}
 }
 
 func WithErrorHandler(h func(http.ResponseWriter, *http.Request, error)) Option {
-	return func(rl *rateLimiter) {
+	return func(rl *RateLimiter) {
 		rl.onError = h
 	}
 }
 
 func WithLimitCounter(c LimitCounter) Option {
-	return func(rl *rateLimiter) {
+	return func(rl *RateLimiter) {
 		rl.limitCounter = c
 	}
 }
 
 func WithResponseHeaders(headers ResponseHeaders) Option {
-	return func(rl *rateLimiter) {
+	return func(rl *RateLimiter) {
 		rl.headers = headers
 	}
 }
 
 func WithNoop() Option {
-	return func(rl *rateLimiter) {}
+	return func(rl *RateLimiter) {}
 }
 
 func composedKeyFunc(keyFuncs ...KeyFunc) KeyFunc {
