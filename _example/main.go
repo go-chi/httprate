@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -15,52 +16,59 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
+	// Rate-limit all routes at 1000 req/min by IP address.
+	r.Use(httprate.LimitByIP(1000, time.Minute))
+
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Note: this is a mock middleware to set a userID on the request context
+				// Note: This is a mock middleware to set a userID on the request context
 				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), "userID", "123")))
 			})
 		})
 
-		// Here we set a specific rate limit by ip address and userID
+		// Rate-limit admin routes at 10 req/s by userID.
 		r.Use(httprate.Limit(
-			10,
-			time.Minute,
-			httprate.WithKeyFuncs(httprate.KeyByIP, func(r *http.Request) (string, error) {
-				token := r.Context().Value("userID").(string)
+			10, time.Second,
+			httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+				token, _ := r.Context().Value("userID").(string)
 				return token, nil
-			}),
-			httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-				// We can send custom responses for the rate limited requests, e.g. a JSON message
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusTooManyRequests)
-				w.Write([]byte(`{"error": "Too many requests"}`))
 			}),
 		))
 
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("10 req/min\n"))
+			w.Write([]byte("admin at 10 req/s\n"))
 		})
 	})
 
-	r.Group(func(r chi.Router) {
-		// Here we set another rate limit (3 req/min) for a group of handlers.
-		//
-		// Note: in practice you don't need to have so many layered rate-limiters,
-		// but the example here is to illustrate how to control the machinery.
-		r.Use(httprate.LimitByIP(3, time.Minute))
+	// Rate-limiter for login endpoint.
+	loginRateLimiter := httprate.NewRateLimiter(5, time.Minute)
 
-		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("3 req/min\n"))
-		})
+	r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		err := json.NewDecoder(r.Body).Decode(&payload)
+		if err != nil || payload.Username == "" || payload.Password == "" {
+			w.WriteHeader(400)
+			return
+		}
+
+		// Rate-limit login at 5 req/min.
+		if loginRateLimiter.OnLimit(w, r, payload.Username) {
+			return
+		}
+
+		w.Write([]byte("login at 5 req/min\n"))
 	})
 
 	log.Printf("Serving at localhost:3333")
 	log.Println()
 	log.Printf("Try running:")
-	log.Printf("curl -v http://localhost:3333")
-	log.Printf("curl -v http://localhost:3333/admin")
+	log.Printf(`curl -v http://localhost:3333?[0-1000]`)
+	log.Printf(`curl -v http://localhost:3333/admin?[1-12]`)
+	log.Printf(`curl -v http://localhost:3333/login\?[1-8] --data '{"username":"alice","password":"***"}'`)
 
 	http.ListenAndServe(":3333", r)
 }
