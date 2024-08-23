@@ -56,7 +56,7 @@ func main() {
 		}
 
 		// Rate-limit login at 5 req/min.
-		if loginRateLimiter.OnLimit(w, r, payload.Username) {
+		if loginRateLimiter.RespondOnLimit(w, r, payload.Username) {
 			return
 		}
 

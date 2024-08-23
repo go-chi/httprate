@@ -66,10 +66,10 @@ type RateLimiter struct {
 	mu            sync.Mutex
 }
 
-// OnLimit checks the rate limit for the given key. If the limit is reached, it returns true
-// and automatically sends HTTP response. The caller should halt further request processing.
-// If the limit is not reached, it increments the request count and returns false, allowing
-// the request to proceed.
+// OnLimit checks the rate limit for the given key and updates the response headers accordingly.
+// If the limit is reached, it returns true, indicating that the request should be halted. Otherwise,
+// it increments the request count and returns false. This method does not send an HTTP response,
+// so the caller must handle the response themselves or use the RespondOnLimit() method instead.
 func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string) bool {
 	currentWindow := time.Now().UTC().Truncate(l.windowLength)
 	ctx := r.Context()
@@ -100,7 +100,6 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 
 		l.mu.Unlock()
 		setHeader(w, l.headers.RetryAfter, fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
-		l.onRateLimited(w, r)
 		return true
 	}
 
@@ -114,6 +113,18 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 
 	setHeader(w, l.headers.Remaining, fmt.Sprintf("%d", limit-rate-increment))
 	return false
+}
+
+// RespondOnLimit checks the rate limit for the given key and updates the response headers accordingly.
+// If the limit is reached, it automatically sends an HTTP response and returns true, signaling the
+// caller to halt further request processing. If the limit is not reached, it increments the request
+// count and returns false, allowing the request to proceed.
+func (l *RateLimiter) RespondOnLimit(w http.ResponseWriter, r *http.Request, key string) bool {
+	onLimit := l.OnLimit(w, r, key)
+	if onLimit {
+		l.onRateLimited(w, r)
+	}
+	return onLimit
 }
 
 func (l *RateLimiter) Counter() LimitCounter {
@@ -132,7 +143,7 @@ func (l *RateLimiter) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		if l.OnLimit(w, r, key) {
+		if l.RespondOnLimit(w, r, key) {
 			return
 		}
 
