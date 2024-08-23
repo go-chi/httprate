@@ -78,35 +78,63 @@ r.Use(httprate.Limit(
 ))
 ```
 
-### Send specific response for rate limited requests
+### Rate limit by request payload
+```go
+// Rate-limiter for login endpoint.
+loginRateLimiter := httprate.NewRateLimiter(5, time.Minute)
+
+r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&payload)
+	if err != nil || payload.Username == "" || payload.Password == "" {
+		w.WriteHeader(400)
+		return
+	}
+
+	// Rate-limit login at 5 req/min.
+	if loginRateLimiter.OnLimit(w, r, payload.Username) {
+		return
+	}
+
+	w.Write([]byte("login at 5 req/min\n"))
+})
+```
+
+### Send specific response for rate-limited requests
+
+The default response is `HTTP 429` with `Too Many Requests` body. You can override it with:
 
 ```go
 r.Use(httprate.Limit(
 	10,
 	time.Minute,
 	httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, `{"error": "Rate limited. Please slow down."}`, http.StatusTooManyRequests)
+		http.Error(w, `{"error": "Rate-limited. Please, slow down."}`, http.StatusTooManyRequests)
 	}),
 ))
 ```
 
-### Send specific response for backend errors
+### Send specific response on errors
+
+An error can be returned by:
+- A custom key function provided by `httprate.WithKeyFunc(customKeyFn)`
+- A custom backend provided by `httprateredis.WithRedisLimitCounter(customBackend)`
+    - The default local in-memory counter is guaranteed not return any errors
+    - Backends that fall-back to the local in-memory counter (e.g. [httprate-redis](https://github.com/go-chi/httprate-redis)) can choose not to return any errors either
 
 ```go
 r.Use(httprate.Limit(
 	10,
 	time.Minute,
 	httprate.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
-		// NOTE: The local in-memory counter is guaranteed not return any errors.
-		// Other backends may return errors, depending on whether they have
-		// in-memory fallback mechanism implemented in case of network errors. 
-
 		http.Error(w, fmt.Sprintf(`{"error": %q}`, err), http.StatusPreconditionRequired)
 	}),
 	httprate.WithLimitCounter(customBackend),
 ))
 ```
-
 
 ### Send custom response headers
 

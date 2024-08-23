@@ -66,6 +66,56 @@ type rateLimiter struct {
 	mu            sync.Mutex
 }
 
+// OnLimit checks the rate limit for the given key. If the limit is reached, it returns true
+// and automatically sends HTTP response. The caller should halt further request processing.
+// If the limit is not reached, it increments the request count and returns false, allowing
+// the request to proceed.
+func (l *rateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string) bool {
+	currentWindow := time.Now().UTC().Truncate(l.windowLength)
+	ctx := r.Context()
+
+	limit := l.requestLimit
+	if val := getRequestLimit(ctx); val > 0 {
+		limit = val
+	}
+	setHeader(w, l.headers.Limit, fmt.Sprintf("%d", limit))
+	setHeader(w, l.headers.Reset, fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
+
+	l.mu.Lock()
+	_, rateFloat, err := l.calculateRate(key, limit)
+	if err != nil {
+		l.mu.Unlock()
+		l.onError(w, r, err)
+		return true
+	}
+	rate := int(math.Round(rateFloat))
+
+	increment := getIncrement(r.Context())
+	if increment > 1 {
+		setHeader(w, l.headers.Increment, fmt.Sprintf("%d", increment))
+	}
+
+	if rate+increment > limit {
+		setHeader(w, l.headers.Remaining, fmt.Sprintf("%d", limit-rate))
+
+		l.mu.Unlock()
+		setHeader(w, l.headers.RetryAfter, fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
+		l.onRateLimited(w, r)
+		return true
+	}
+
+	err = l.limitCounter.IncrementBy(key, currentWindow, increment)
+	if err != nil {
+		l.mu.Unlock()
+		l.onError(w, r, err)
+		return true
+	}
+	l.mu.Unlock()
+
+	setHeader(w, l.headers.Remaining, fmt.Sprintf("%d", limit-rate-increment))
+	return false
+}
+
 func (l *rateLimiter) Counter() LimitCounter {
 	return l.limitCounter
 }
@@ -82,48 +132,9 @@ func (l *rateLimiter) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		currentWindow := time.Now().UTC().Truncate(l.windowLength)
-		ctx := r.Context()
-
-		limit := l.requestLimit
-		if val := getRequestLimit(ctx); val > 0 {
-			limit = val
-		}
-		setHeader(w, l.headers.Limit, fmt.Sprintf("%d", limit))
-		setHeader(w, l.headers.Reset, fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
-
-		l.mu.Lock()
-		_, rateFloat, err := l.calculateRate(key, limit)
-		if err != nil {
-			l.mu.Unlock()
-			l.onError(w, r, err)
+		if l.OnLimit(w, r, key) {
 			return
 		}
-		rate := int(math.Round(rateFloat))
-
-		increment := getIncrement(r.Context())
-		if increment > 1 {
-			setHeader(w, l.headers.Increment, fmt.Sprintf("%d", increment))
-		}
-
-		if rate+increment > limit {
-			setHeader(w, l.headers.Remaining, fmt.Sprintf("%d", limit-rate))
-
-			l.mu.Unlock()
-			setHeader(w, l.headers.RetryAfter, fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
-			l.onRateLimited(w, r)
-			return
-		}
-
-		err = l.limitCounter.IncrementBy(key, currentWindow, increment)
-		if err != nil {
-			l.mu.Unlock()
-			l.onError(w, r, err)
-			return
-		}
-		l.mu.Unlock()
-
-		setHeader(w, l.headers.Remaining, fmt.Sprintf("%d", limit-rate-increment))
 
 		next.ServeHTTP(w, r)
 	})

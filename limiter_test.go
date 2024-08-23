@@ -3,6 +3,7 @@ package httprate_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -433,6 +434,62 @@ func TestOverrideRequestLimit(t *testing.T) {
 		respBody := strings.TrimSuffix(string(body), "\n")
 
 		if respBody != response.Body {
+			t.Errorf("resp.Body(%v) = %q, want %q", i, respBody, response.Body)
+		}
+	}
+}
+
+func TestRateLimitPayload(t *testing.T) {
+	loginRateLimiter := httprate.NewRateLimiter(5, time.Minute)
+
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		err := json.NewDecoder(r.Body).Decode(&payload)
+		if err != nil || payload.Username == "" || payload.Password == "" {
+			w.WriteHeader(400)
+			return
+		}
+
+		// Rate-limit login at 5 req/min.
+		if loginRateLimiter.OnLimit(w, r, payload.Username) {
+			return
+		}
+
+		w.Write([]byte("login at 5 req/min\n"))
+	})
+
+	responses := []struct {
+		StatusCode int
+		Body       string
+	}{
+		{StatusCode: 200, Body: "login at 5 req/min"},
+		{StatusCode: 200, Body: "login at 5 req/min"},
+		{StatusCode: 200, Body: "login at 5 req/min"},
+		{StatusCode: 200, Body: "login at 5 req/min"},
+		{StatusCode: 200, Body: "login at 5 req/min"},
+		{StatusCode: 429, Body: "Too Many Requests"},
+		{StatusCode: 429, Body: "Too Many Requests"},
+		{StatusCode: 429, Body: "Too Many Requests"},
+	}
+	for i, response := range responses {
+		req, err := http.NewRequest("GET", "/", strings.NewReader(`{"username":"alice","password":"***"}`))
+		if err != nil {
+			t.Errorf("failed = %v", err)
+		}
+
+		recorder := httptest.NewRecorder()
+		h.ServeHTTP(recorder, req)
+		result := recorder.Result()
+		if respStatus := result.StatusCode; respStatus != response.StatusCode {
+			t.Errorf("resp.StatusCode(%v) = %v, want %v", i, respStatus, response.StatusCode)
+		}
+		body, _ := io.ReadAll(result.Body)
+		respBody := strings.TrimSuffix(string(body), "\n")
+
+		if string(respBody) != response.Body {
 			t.Errorf("resp.Body(%v) = %q, want %q", i, respBody, response.Body)
 		}
 	}
