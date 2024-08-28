@@ -35,6 +35,12 @@ func LimitByRealIP(requestLimit int, windowLength time.Duration) func(next http.
 	return Limit(requestLimit, windowLength, WithKeyFuncs(KeyByRealIP))
 }
 
+func Key(key string) func(r *http.Request) (string, error) {
+	return func(r *http.Request) (string, error) {
+		return key, nil
+	}
+}
+
 func KeyByIP(r *http.Request) (string, error) {
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
