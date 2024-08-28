@@ -33,9 +33,7 @@ func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Opt
 	}
 
 	if rl.keyFn == nil {
-		rl.keyFn = func(r *http.Request) (string, error) {
-			return "*", nil
-		}
+		rl.keyFn = Key("*")
 	}
 
 	if rl.limitCounter == nil {
