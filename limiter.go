@@ -72,8 +72,6 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 	currentWindow := time.Now().UTC().Truncate(l.windowLength)
 	ctx := r.Context()
 
-	setHeader(w, l.headers.Reset, fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
-
 	limit, ok := getRequestLimit(ctx)
 	if !ok {
 		limit = l.requestLimit
@@ -86,6 +84,8 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 	if limit == -1 {
 		return false
 	}
+
+	setHeader(w, l.headers.Reset, fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
 	setHeader(w, l.headers.Limit, fmt.Sprintf("%d", limit))
 
 	increment, ok := getIncrement(r.Context())
