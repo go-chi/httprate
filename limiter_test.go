@@ -142,7 +142,7 @@ func TestResponseHeaders(t *testing.T) {
 			increments:          []int{0, 0, 0, 0, 0, 0},
 			respCodes:           []int{200, 200, 200, 200, 200, 200},
 			respLimitHeader:     []string{"5", "5", "5", "5", "5", "5"},
-			respRemainingHeader: []string{"5", "5", "5", "5", "5", "5"},
+			respRemainingHeader: []string{"", "", "", "", "", ""},
 		},
 		{
 			name:                "always block",
