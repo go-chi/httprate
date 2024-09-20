@@ -78,12 +78,12 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 	if !ok {
 		limit = l.requestLimit
 	}
-	// If the limit is set to 0, we are always over limit
+	// If the limit is set to 0, we always limit
 	if limit == 0 {
 		return true
 	}
-	// If the limit is set to -1, we are never over limit
-	if limit == _NoLimit {
+	// If the limit is set to -1, there is no limit
+	if limit == -1 {
 		return false
 	}
 
@@ -91,7 +91,7 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 	if !ok {
 		increment = 1
 	}
-	// If the increment is 0, we are always on limit
+	// If the increment is 0, we do not limit
 	if increment == 0 {
 		return false
 	}

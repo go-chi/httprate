@@ -9,8 +9,6 @@ const (
 	requestLimitKey
 )
 
-const _NoLimit = -1
-
 func WithIncrement(ctx context.Context, value int) context.Context {
 	return context.WithValue(ctx, incrementKey, value)
 }
@@ -21,7 +19,7 @@ func getIncrement(ctx context.Context) (int, bool) {
 }
 
 func WithNoLimit(ctx context.Context) context.Context {
-	return context.WithValue(ctx, requestLimitKey, _NoLimit)
+	return context.WithValue(ctx, requestLimitKey, -1)
 }
 
 func WithRequestLimit(ctx context.Context, value int) context.Context {
