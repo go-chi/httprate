@@ -141,7 +141,7 @@ func TestResponseHeaders(t *testing.T) {
 			requestsLimit:       5,
 			increments:          []int{0, 0, 0, 0, 0, 0},
 			respCodes:           []int{200, 200, 200, 200, 200, 200},
-			respLimitHeader:     []string{"", "", "", "", "", ""},
+			respLimitHeader:     []string{"5", "5", "5", "5", "5", "5"},
 			respRemainingHeader: []string{"", "", "", "", "", ""},
 		},
 		{
