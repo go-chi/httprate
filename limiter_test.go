@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/httprate"
+	"github.com/Alge/httprate"
 )
 
 func TestLimit(t *testing.T) {

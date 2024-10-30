@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/httprate"
+	"github.com/Alge/httprate"
 	"golang.org/x/sync/errgroup"
 )
 

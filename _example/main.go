@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/httprate"
+	"github.com/Alge/chi/v5"
+	"github.com/Alge/chi/v5/middleware"
+	"github.com/Alge/httprate"
 )
 
 func main() {
