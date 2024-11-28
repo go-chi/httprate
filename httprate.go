@@ -164,5 +164,5 @@ func canonicalizeIP(ip string) string {
 		return ip
 	}
 
-	return ipv6.Mask(net.CIDRMask(64, 128)).String()
+	return ipv6.String()
 }
