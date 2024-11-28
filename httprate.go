@@ -137,8 +137,7 @@ func composedKeyFunc(keyFuncs ...KeyFunc) KeyFunc {
 }
 
 // canonicalizeIP returns a form of ip suitable for comparison to other IPs.
-// For IPv4 addresses, this is simply the whole string.
-// For IPv6 addresses, this is the /64 prefix.
+// For IPv4 and IPv6 addresses, this is simply the whole string.
 func canonicalizeIP(ip string) string {
 	isIPv6 := false
 	// This is how net.ParseIP decides if an address is IPv6
