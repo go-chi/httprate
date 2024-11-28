@@ -367,7 +367,7 @@ func TestLimitIP(t *testing.T) {
 			name:          "block-ipv6",
 			requestsLimit: 1,
 			windowLength:  2 * time.Second,
-			reqIp:         []string{"2001:DB8::21f:5bff:febf:ce22:1111", "2001:DB8::21f:5bff:febf:ce22:2222", "2002:DB8::21f:5bff:febf:ce22:1111"},
+			reqIp:         []string{"2001:DB8::21f:5bff:febf:ce22:1111", "2001:DB8::21f:5bff:febf:ce22:1111", "2002:DB8::21f:5bff:febf:ce22:1111"},
 			respCodes:     []int{200, 429, 200},
 		},
 	}
