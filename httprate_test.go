@@ -31,22 +31,22 @@ func Test_canonicalizeIP(t *testing.T) {
 		{
 			name: "IPv6 test 1",
 			ip:   "2001:DB8::21f:5bff:febf:ce22:8a2e",
-			want: "2001:db8:0:21f::",
+			want: "2001:db8:0:21f:5bff:febf:ce22:8a2e",
 		},
 		{
 			name: "IPv6 test 2",
 			ip:   "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
-			want: "2001:db8:85a3::",
+			want: "2001:db8:85a3::8a2e:370:7334",
 		},
 		{
 			name: "IPv6 test 3",
 			ip:   "fe80::1ff:fe23:4567:890a",
-			want: "fe80::",
+			want: "fe80::1ff:fe23:4567:890a",
 		},
 		{
 			name: "IPv6 test 4",
 			ip:   "f:f:f:f:f:f:f:f",
-			want: "f:f:f:f::",
+			want: "f:f:f:f:f:f:f:f",
 		},
 	}
 	for _, tt := range tests {
