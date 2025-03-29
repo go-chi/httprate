@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cespare/xxhash/v2"
+	"github.com/zeebo/xxh3"
 )
 
 // NewLocalLimitCounter creates an instance of localCounter,
@@ -71,8 +71,28 @@ func (c *localCounter) Increment(key string, currentWindow time.Time) error {
 	return c.IncrementBy(key, currentWindow, 1)
 }
 
+func (c *localCounter) evict(currentWindow time.Time) {
+	if c.latestWindow == currentWindow {
+		return
+	}
+
+	previousWindow := currentWindow.Add(-c.windowLength)
+	if c.latestWindow == previousWindow {
+		c.latestWindow = currentWindow
+		// Shift the windows without map re-allocation.
+		clear(c.previousCounters)
+		c.latestCounters, c.previousCounters = c.previousCounters, c.latestCounters
+		return
+	}
+
+	c.latestWindow = currentWindow
+
+	clear(c.previousCounters)
+	clear(c.latestCounters)
+}
+
 func limitCounterKey(key string) uint64 {
-	h := xxhash.New()
+	h := xxh3.New()
 	h.WriteString(key)
 	return h.Sum64()
 }
