@@ -1,9 +1,9 @@
 package httprate
 
 import (
-	"fmt"
 	"math"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -76,8 +76,8 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 	if val := getRequestLimit(ctx); val > 0 {
 		limit = val
 	}
-	setHeader(w, l.headers.Limit, fmt.Sprintf("%d", limit))
-	setHeader(w, l.headers.Reset, fmt.Sprintf("%d", currentWindow.Add(l.windowLength).Unix()))
+	setHeader(w, l.headers.Limit, strconv.Itoa(limit))
+	setHeader(w, l.headers.Reset, strconv.FormatInt(currentWindow.Add(l.windowLength).Unix(), 10))
 
 	l.mu.Lock()
 	_, rateFloat, err := l.calculateRate(key, limit)
@@ -90,14 +90,14 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 
 	increment := getIncrement(r.Context())
 	if increment > 1 {
-		setHeader(w, l.headers.Increment, fmt.Sprintf("%d", increment))
+		setHeader(w, l.headers.Increment, strconv.Itoa(increment))
 	}
 
 	if rate+increment > limit {
-		setHeader(w, l.headers.Remaining, fmt.Sprintf("%d", limit-rate))
+		setHeader(w, l.headers.Remaining, strconv.Itoa(limit-rate))
 
 		l.mu.Unlock()
-		setHeader(w, l.headers.RetryAfter, fmt.Sprintf("%d", int(l.windowLength.Seconds()))) // RFC 6585
+		setHeader(w, l.headers.RetryAfter, strconv.Itoa(int(l.windowLength.Seconds()))) // RFC 6585
 		return true
 	}
 
@@ -109,7 +109,7 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 	}
 	l.mu.Unlock()
 
-	setHeader(w, l.headers.Remaining, fmt.Sprintf("%d", limit-rate-increment))
+	setHeader(w, l.headers.Remaining, strconv.Itoa(limit-rate-increment))
 	return false
 }
 

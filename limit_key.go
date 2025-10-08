@@ -1,7 +1,7 @@
 package httprate
 
 import (
-	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/zeebo/xxh3"
@@ -10,6 +10,6 @@ import (
 func LimitCounterKey(key string, window time.Time) uint64 {
 	h := xxh3.New()
 	h.WriteString(key)
-	h.WriteString(fmt.Sprintf("%d", window.Unix()))
+	h.WriteString(strconv.FormatInt(window.Unix(), 10))
 	return h.Sum64()
 }
