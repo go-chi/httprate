@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// LimitCounter is an interface that defines the methods for a rate limit counter.
+// It is used to store and retrieve the rate limit counter for a given key and
+// window. A default implementation is provided by [NewLocalLimitCounter].
 type LimitCounter interface {
 	Config(requestLimit int, windowLength time.Duration)
 	Increment(key string, currentWindow time.Time) error
@@ -15,6 +18,9 @@ type LimitCounter interface {
 	Get(key string, currentWindow, previousWindow time.Time) (int, int, error)
 }
 
+// NewRateLimiter creates a new [RateLimiter] with the given request limit and
+// window length. The returned rate limiter will use the default [LocalLimitCounter]
+// implementation, if not overridden.
 func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Option) *RateLimiter {
 	rl := &RateLimiter{
 		requestLimit: requestLimit,
@@ -125,10 +131,12 @@ func (l *RateLimiter) RespondOnLimit(w http.ResponseWriter, r *http.Request, key
 	return onLimit
 }
 
+// Counter returns the limit counter used by the rate limiter.
 func (l *RateLimiter) Counter() LimitCounter {
 	return l.limitCounter
 }
 
+// Status returns the current status of the rate limiter for the given key.
 func (l *RateLimiter) Status(key string) (bool, float64, error) {
 	return l.calculateRate(key, l.requestLimit)
 }
@@ -149,6 +157,8 @@ func (l *RateLimiter) Handler(next http.Handler) http.Handler {
 	})
 }
 
+// calculateRate calculates the rate for the given key and request limit. It does
+// not increment the counter.
 func (l *RateLimiter) calculateRate(key string, requestLimit int) (bool, float64, error) {
 	now := time.Now().UTC()
 	currentWindow := now.Truncate(l.windowLength)

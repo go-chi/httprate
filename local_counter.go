@@ -7,8 +7,8 @@ import (
 	"github.com/zeebo/xxh3"
 )
 
-// NewLocalLimitCounter creates an instance of localCounter,
-// which is an in-memory implementation of http.LimitCounter.
+// NewLocalLimitCounter creates an instance of localCounter, which is an in-memory
+// implementation of [LimitCounter].
 //
 // All methods are guaranteed to always return nil error.
 func NewLocalLimitCounter(windowLength time.Duration) *localCounter {
@@ -38,7 +38,7 @@ func (c *localCounter) IncrementBy(key string, currentWindow time.Time, amount i
 
 	hkey := limitCounterKey(key)
 
-	count, _ := c.latestCounters[hkey]
+	count := c.latestCounters[hkey]
 	c.latestCounters[hkey] = count + amount
 
 	return nil
@@ -48,14 +48,14 @@ func (c *localCounter) Get(key string, currentWindow, previousWindow time.Time) 
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.latestWindow == currentWindow {
-		curr, _ := c.latestCounters[limitCounterKey(key)]
-		prev, _ := c.previousCounters[limitCounterKey(key)]
+	if c.latestWindow.Equal(currentWindow) {
+		curr := c.latestCounters[limitCounterKey(key)]
+		prev := c.previousCounters[limitCounterKey(key)]
 		return curr, prev, nil
 	}
 
-	if c.latestWindow == previousWindow {
-		prev, _ := c.latestCounters[limitCounterKey(key)]
+	if c.latestWindow.Equal(previousWindow) {
+		prev := c.latestCounters[limitCounterKey(key)]
 		return 0, prev, nil
 	}
 
@@ -72,12 +72,12 @@ func (c *localCounter) Increment(key string, currentWindow time.Time) error {
 }
 
 func (c *localCounter) evict(currentWindow time.Time) {
-	if c.latestWindow == currentWindow {
+	if c.latestWindow.Equal(currentWindow) {
 		return
 	}
 
 	previousWindow := currentWindow.Add(-c.windowLength)
-	if c.latestWindow == previousWindow {
+	if c.latestWindow.Equal(previousWindow) {
 		c.latestWindow = currentWindow
 		// Shift the windows without map re-allocation.
 		clear(c.previousCounters)
@@ -93,6 +93,6 @@ func (c *localCounter) evict(currentWindow time.Time) {
 
 func limitCounterKey(key string) uint64 {
 	h := xxh3.New()
-	h.WriteString(key)
+	_, _ = h.WriteString(key)
 	return h.Sum64()
 }
