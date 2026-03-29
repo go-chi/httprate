@@ -1,6 +1,11 @@
 package httprate
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+)
 
 func Test_canonicalizeIP(t *testing.T) {
 	tests := []struct {
@@ -56,4 +61,47 @@ func Test_canonicalizeIP(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSkip(t *testing.T) {
+	window := time.Minute
+	limit := 3
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	t.Run("without skip exhausts limit", func(t *testing.T) {
+		limited := LimitAll(limit, window)(inner)
+		want := []int{http.StatusOK, http.StatusOK, http.StatusOK, http.StatusTooManyRequests}
+		for i, wantCode := range want {
+			rec := httptest.NewRecorder()
+			limited.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+			if got := rec.Code; got != wantCode {
+				t.Fatalf("request %d: status = %d, want %d", i, got, wantCode)
+			}
+		}
+	})
+
+	t.Run("with skip does not count toward limit", func(t *testing.T) {
+		limited := LimitAll(limit, window)(inner)
+		skipped := Skip(limited)
+		n := limit + 10
+		for i := range n {
+			rec := httptest.NewRecorder()
+			skipped.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+			if got := rec.Code; got != http.StatusOK {
+				t.Fatalf("request %d: status = %d, want %d", i, got, http.StatusOK)
+			}
+		}
+	})
+
+	t.Run("with skip still sets rate limit headers", func(t *testing.T) {
+		limited := LimitAll(limit, window)(inner)
+		rec := httptest.NewRecorder()
+		Skip(limited).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		if got := rec.Header().Get("X-RateLimit-Limit"); got != "3" {
+			t.Errorf("X-RateLimit-Limit = %q, want %q", got, "3")
+		}
+	})
 }

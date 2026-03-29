@@ -163,7 +163,7 @@ func TestResponseHeaders(t *testing.T) {
 			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 			router := httprate.LimitAll(tt.requestsLimit, time.Minute)(h)
 
-			for i := 0; i < count; i++ {
+			for i := range count {
 				req := httptest.NewRequest("GET", "/", nil)
 				req = req.WithContext(httprate.WithIncrement(req.Context(), tt.increments[i]))
 				recorder := httptest.NewRecorder()
@@ -224,7 +224,7 @@ func TestCustomResponseHeaders(t *testing.T) {
 				1,
 				time.Minute,
 				httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-					http.Error(w, "Wow Slow Down Kiddo", 429)
+					http.Error(w, "Wow Slow Down Kiddo", http.StatusTooManyRequests)
 				}),
 				httprate.WithResponseHeaders(tt.headers),
 			)(h)
@@ -316,7 +316,7 @@ func TestLimitHandler(t *testing.T) {
 				tt.requestsLimit,
 				tt.windowLength,
 				httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-					http.Error(w, "Wow Slow Down Kiddo", 429)
+					http.Error(w, "Wow Slow Down Kiddo", http.StatusTooManyRequests)
 				}),
 			)(h)
 
@@ -329,7 +329,7 @@ func TestLimitHandler(t *testing.T) {
 					t.Errorf("resp.StatusCode(%v) = %v, want %v", i, respStatus, expected.StatusCode)
 				}
 				buf := new(bytes.Buffer)
-				buf.ReadFrom(result.Body)
+				_, _ = buf.ReadFrom(result.Body)
 				respBody := strings.TrimSuffix(buf.String(), "\n")
 
 				if respBody != expected.Body {
@@ -395,7 +395,7 @@ func TestOverrideRequestLimit(t *testing.T) {
 		3,
 		time.Minute,
 		httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "Wow Slow Down Kiddo", 429)
+			http.Error(w, "Wow Slow Down Kiddo", http.StatusTooManyRequests)
 		}),
 	)(h)
 
@@ -458,7 +458,7 @@ func TestRateLimitPayload(t *testing.T) {
 			return
 		}
 
-		w.Write([]byte("login at 5 req/min\n"))
+		_, _ = w.Write([]byte("login at 5 req/min\n"))
 	})
 
 	responses := []struct {

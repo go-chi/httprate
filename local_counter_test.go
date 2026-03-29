@@ -103,8 +103,7 @@ func TestLocalCounter(t *testing.T) {
 
 		if tt.incrBy > 0 {
 			var g errgroup.Group
-			for i := 0; i < concurrentRequests; i++ {
-				i := i
+			for i := range concurrentRequests {
 				g.Go(func() error {
 					key := fmt.Sprintf("key:%v", i)
 					return limitCounter.IncrementBy(key, currentWindow, tt.incrBy)
@@ -116,8 +115,7 @@ func TestLocalCounter(t *testing.T) {
 		}
 
 		var g errgroup.Group
-		for i := 0; i < concurrentRequests; i++ {
-			i := i
+		for i := range concurrentRequests {
 			g.Go(func() error {
 				key := fmt.Sprintf("key:%v", i)
 				curr, prev, err := limitCounter.Get(key, currentWindow, previousWindow)
@@ -155,14 +153,14 @@ func BenchmarkLocalCounter(b *testing.B) {
 
 			wg := sync.WaitGroup{}
 			wg.Add(1000)
-			for i := 0; i < 1000; i++ {
+			for i := range 1000 {
 				// Simulate concurrent requests with different rate-limit keys.
-				go func(i int) {
+				go func() {
 					defer wg.Done()
 
 					_, _, _ = limitCounter.Get(fmt.Sprintf("key-%v", i), currentWindow, previousWindow)
 					_ = limitCounter.IncrementBy(fmt.Sprintf("key-%v", i), currentWindow, rand.Intn(100))
-				}(i)
+				}()
 			}
 			wg.Wait()
 		}
