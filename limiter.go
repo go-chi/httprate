@@ -37,6 +37,11 @@ func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Opt
 	}
 
 	if rl.limitCounter == nil {
+		// Align windows to this limiter's start instant, not the wall clock, so resets
+		// spread out instead of all snapping to the same instant (e.g. the exact second).
+		// Safe only in-process; custom counters (e.g. Redis) stay wall-clock-aligned.
+		start := time.Now().UTC()
+		rl.windowOffset = start.Sub(start.Truncate(windowLength))
 		rl.limitCounter = NewLocalLimitCounter(windowLength)
 	} else {
 		rl.limitCounter.Config(requestLimit, windowLength)
@@ -56,6 +61,7 @@ func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Opt
 type RateLimiter struct {
 	requestLimit  int
 	windowLength  time.Duration
+	windowOffset  time.Duration
 	keyFn         KeyFunc
 	limitCounter  LimitCounter
 	onRateLimited http.HandlerFunc
@@ -69,7 +75,7 @@ type RateLimiter struct {
 // it increments the request count and returns false. This method does not send an HTTP response,
 // so the caller must handle the response themselves or use the RespondOnLimit() method instead.
 func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string) bool {
-	currentWindow := time.Now().UTC().Truncate(l.windowLength)
+	currentWindow := l.currentWindow(time.Now().UTC())
 	ctx := r.Context()
 
 	limit := l.requestLimit
@@ -149,9 +155,16 @@ func (l *RateLimiter) Handler(next http.Handler) http.Handler {
 	})
 }
 
+// currentWindow returns the start of the rate-limit window containing t, aligned
+// to windowOffset rather than the wall clock. When windowOffset is zero this is a
+// plain truncation. The result is always in (t-windowLength, t].
+func (l *RateLimiter) currentWindow(t time.Time) time.Time {
+	return t.Add(-l.windowOffset).Truncate(l.windowLength).Add(l.windowOffset)
+}
+
 func (l *RateLimiter) calculateRate(key string, requestLimit int) (bool, float64, error) {
 	now := time.Now().UTC()
-	currentWindow := now.Truncate(l.windowLength)
+	currentWindow := l.currentWindow(now)
 	previousWindow := currentWindow.Add(-l.windowLength)
 
 	currCount, prevCount, err := l.limitCounter.Get(key, currentWindow, previousWindow)
