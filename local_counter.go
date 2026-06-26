@@ -14,7 +14,7 @@ import (
 func NewLocalLimitCounter(windowLength time.Duration) *localCounter {
 	return &localCounter{
 		windowLength:     windowLength,
-		latestWindow:     time.Now().UTC().Truncate(windowLength),
+		latestWindow:     time.Now().UTC(),
 		latestCounters:   make(map[uint64]int),
 		previousCounters: make(map[uint64]int),
 	}
