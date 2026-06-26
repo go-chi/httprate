@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/go-chi/httprate"
-	"golang.org/x/sync/errgroup"
 )
 
 func TestLocalCounter(t *testing.T) {
@@ -102,40 +101,42 @@ func TestLocalCounter(t *testing.T) {
 		}
 
 		if tt.incrBy > 0 {
-			var g errgroup.Group
+			var wg sync.WaitGroup
 			for i := 0; i < concurrentRequests; i++ {
 				i := i
-				g.Go(func() error {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
 					key := fmt.Sprintf("key:%v", i)
-					return limitCounter.IncrementBy(key, currentWindow, tt.incrBy)
-				})
+					if err := limitCounter.IncrementBy(key, currentWindow, tt.incrBy); err != nil {
+						t.Errorf("%s: %v", tt.name, err)
+					}
+				}()
 			}
-			if err := g.Wait(); err != nil {
-				t.Errorf("%s: %v", tt.name, err)
-			}
+			wg.Wait()
 		}
 
-		var g errgroup.Group
+		var wg sync.WaitGroup
 		for i := 0; i < concurrentRequests; i++ {
 			i := i
-			g.Go(func() error {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 				key := fmt.Sprintf("key:%v", i)
 				curr, prev, err := limitCounter.Get(key, currentWindow, previousWindow)
 				if err != nil {
-					return fmt.Errorf("%q: %w", key, err)
+					t.Errorf("%s: %q: %v", tt.name, key, err)
+					return
 				}
 				if curr != tt.curr {
-					return fmt.Errorf("%q: unexpected curr = %v, expected %v", key, curr, tt.curr)
+					t.Errorf("%s: %q: unexpected curr = %v, expected %v", tt.name, key, curr, tt.curr)
 				}
 				if prev != tt.prev {
-					return fmt.Errorf("%q: unexpected prev = %v, expected %v", key, prev, tt.prev)
+					t.Errorf("%s: %q: unexpected prev = %v, expected %v", tt.name, key, prev, tt.prev)
 				}
-				return nil
-			})
+			}()
 		}
-		if err := g.Wait(); err != nil {
-			t.Errorf("%s: %v", tt.name, err)
-		}
+		wg.Wait()
 	}
 }
 
