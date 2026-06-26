@@ -2,7 +2,6 @@ package httprate
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -46,14 +45,6 @@ func Key(key string) func(r *http.Request) (string, error) {
 	}
 }
 
-func KeyByIP(r *http.Request) (string, error) {
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		ip = r.RemoteAddr
-	}
-	return canonicalizeIP(ip), nil
-}
-
 // KeyFromContext builds a KeyFunc that reads the rate-limit key from the
 // request context using the given extractor. It is the safe, router-agnostic
 // way to rate-limit by a trusted client IP: pair it with chi's
@@ -86,13 +77,9 @@ func KeyByEndpoint(r *http.Request) (string, error) {
 func WithKeyFuncs(keyFuncs ...KeyFunc) Option {
 	return func(rl *RateLimiter) {
 		if len(keyFuncs) > 0 {
-			rl.keyFn = composedKeyFunc(keyFuncs...)
+			rl.keyFn = JoinKeys(keyFuncs...)
 		}
 	}
-}
-
-func WithKeyByIP() Option {
-	return WithKeyFuncs(KeyByIP)
 }
 
 func WithLimitHandler(h http.HandlerFunc) Option {
@@ -133,14 +120,10 @@ func WithNoop() Option {
 // It is the positional-argument equivalent of WithKeyFuncs. If any component
 // KeyFunc returns an error, the joined key returns that error.
 func JoinKeys(fns ...KeyFunc) KeyFunc {
-	return composedKeyFunc(fns...)
-}
-
-func composedKeyFunc(keyFuncs ...KeyFunc) KeyFunc {
 	return func(r *http.Request) (string, error) {
 		var key strings.Builder
-		for i := 0; i < len(keyFuncs); i++ {
-			k, err := keyFuncs[i](r)
+		for i := 0; i < len(fns); i++ {
+			k, err := fns[i](r)
 			if err != nil {
 				return "", err
 			}
@@ -149,35 +132,4 @@ func composedKeyFunc(keyFuncs ...KeyFunc) KeyFunc {
 		}
 		return key.String(), nil
 	}
-}
-
-// canonicalizeIP returns a form of ip suitable for comparison to other IPs.
-// For IPv4 addresses, this is simply the whole string.
-// For IPv6 addresses, this is the /64 prefix.
-func canonicalizeIP(ip string) string {
-	isIPv6 := false
-	// This is how net.ParseIP decides if an address is IPv6
-	// https://cs.opensource.google/go/go/+/refs/tags/go1.17.7:src/net/ip.go;l=704
-	for i := 0; !isIPv6 && i < len(ip); i++ {
-		switch ip[i] {
-		case '.':
-			// IPv4
-			return ip
-		case ':':
-			// IPv6
-			isIPv6 = true
-			break
-		}
-	}
-	if !isIPv6 {
-		// Not an IP address at all
-		return ip
-	}
-
-	ipv6 := net.ParseIP(ip)
-	if ipv6 == nil {
-		return ip
-	}
-
-	return ipv6.Mask(net.CIDRMask(64, 128)).String()
 }

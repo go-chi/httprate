@@ -16,9 +16,14 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
-	// Rate-limit all routes at 1000 req/min by IP address (RemoteAddr, the TCP
-	// peer). Use this when the server is directly exposed to clients.
-	r.Use(httprate.LimitBy(1000, time.Minute, httprate.KeyByIP))
+	// Rate-limit all routes at 1000 req/min by client IP. There is no safe
+	// default IP source, so state the trust model explicitly: this server is
+	// directly exposed to clients, so the client IP is the TCP peer (RemoteAddr),
+	// resolved by middleware.ClientIPFromRemoteAddr and read via
+	// KeyFromContext(middleware.GetClientIP). Behind a proxy, use ClientIPFromXFF
+	// / ClientIPFromHeader instead (see the /proxied route below).
+	r.Use(middleware.ClientIPFromRemoteAddr)
+	r.Use(httprate.LimitBy(1000, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)))
 
 	// Rate-limit by the *trusted* client IP when running behind a reverse
 	// proxy / CDN. middleware.ClientIPFromXFF resolves the client IP from the

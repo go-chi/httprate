@@ -14,8 +14,9 @@ import (
 
 // Deprecated: Use LimitBy(requestLimit, windowLength, keyFn, options...) instead,
 // which makes the rate-limit key an explicit, required argument rather than an
-// optional WithKeyFuncs. Pass the key function directly (e.g. httprate.KeyByIP),
-// or httprate.Key("*") for a single global bucket. The remaining options
+// optional WithKeyFuncs. Pass the key function directly (e.g.
+// KeyFromContext(middleware.GetClientIP) for a trusted client IP), or
+// httprate.Key("*") for a single global bucket. The remaining options
 // (WithLimitCounter, WithLimitHandler, WithResponseHeaders, ...) carry over
 // unchanged as LimitBy's trailing variadic.
 func Limit(requestLimit int, windowLength time.Duration, options ...Option) func(next http.Handler) http.Handler {
@@ -30,8 +31,16 @@ func LimitAll(requestLimit int, windowLength time.Duration) func(next http.Handl
 	return LimitBy(requestLimit, windowLength, Key("*"))
 }
 
-// Deprecated: Use LimitBy(requestLimit, windowLength, KeyByIP) instead. This is
-// an ergonomic rename with identical behavior, not a security fix.
+// Deprecated: LimitByIP keys off r.RemoteAddr (see KeyByIP). It is not
+// spoofable, but behind a reverse proxy, load balancer, or CDN r.RemoteAddr is
+// the proxy's address, so every client sharing that proxy lands in one bucket —
+// usually the wrong key in production. State your trust model explicitly:
+// install one of chi's middleware.ClientIPFrom* middlewares (chi v5.3.0+) and
+// use LimitBy with KeyFromContext(middleware.GetClientIP):
+//
+//	// Directly exposed to clients (LimitByIP's exact behavior, made explicit):
+//	r.Use(middleware.ClientIPFromRemoteAddr)
+//	r.Use(httprate.LimitBy(requestLimit, windowLength, httprate.KeyFromContext(middleware.GetClientIP)))
 func LimitByIP(requestLimit int, windowLength time.Duration) func(next http.Handler) http.Handler {
 	return LimitBy(requestLimit, windowLength, KeyByIP)
 }
@@ -93,4 +102,74 @@ func KeyByRealIP(r *http.Request) (string, error) {
 // instead.
 func WithKeyByRealIP() Option {
 	return WithKeyFuncs(KeyByRealIP)
+}
+
+// Deprecated: KeyByIP keys off r.RemoteAddr, the TCP peer that opened the
+// connection. Unlike KeyByRealIP it is NOT spoofable (RemoteAddr is set by
+// net/http, never from a header) — but behind a reverse proxy, load balancer,
+// or CDN, r.RemoteAddr is the proxy's address, so every client sharing that
+// proxy lands in one rate-limit bucket. That's usually the wrong key in
+// production, and there is no safe default IP source.
+//
+// State your trust model explicitly with one of chi's middleware.ClientIPFrom*
+// middlewares (chi v5.3.0+) and read it with KeyFromContext(middleware.GetClientIP):
+//
+//	// Directly exposed to clients (KeyByIP's exact behavior, made explicit):
+//	r.Use(middleware.ClientIPFromRemoteAddr)
+//	r.Use(httprate.LimitBy(100, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)))
+//
+//	// Behind a proxy: use ClientIPFromXFF / ClientIPFromHeader / ... instead.
+//
+// KeyByIP returns the IPv4 address unchanged, or the /64 prefix for IPv6.
+func KeyByIP(r *http.Request) (string, error) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	return canonicalizeIP(ip), nil
+}
+
+// Deprecated: WithKeyByIP installs KeyByIP, which keys off r.RemoteAddr — the
+// proxy's address behind a reverse proxy, load balancer, or CDN, and usually
+// the wrong key in production (see KeyByIP). It is not a spoofing issue, but
+// there is no safe default IP source. State your trust model explicitly:
+// install one of chi's middleware.ClientIPFrom* middlewares (chi v5.3.0+) and
+// use LimitBy with KeyFromContext(middleware.GetClientIP) instead.
+func WithKeyByIP() Option {
+	return WithKeyFuncs(KeyByIP)
+}
+
+// canonicalizeIP returns a form of ip suitable for comparison to other IPs.
+// For IPv4 addresses, this is simply the whole string.
+// For IPv6 addresses, this is the /64 prefix.
+//
+// Only used by the deprecated KeyByIP / KeyByRealIP above. The supported
+// client-IP path (chi's middleware.ClientIPFrom* + KeyFromContext) canonicalizes
+// the IP upstream, so httprate no longer needs this for new code.
+func canonicalizeIP(ip string) string {
+	isIPv6 := false
+	// This is how net.ParseIP decides if an address is IPv6
+	// https://cs.opensource.google/go/go/+/refs/tags/go1.17.7:src/net/ip.go;l=704
+	for i := 0; !isIPv6 && i < len(ip); i++ {
+		switch ip[i] {
+		case '.':
+			// IPv4
+			return ip
+		case ':':
+			// IPv6
+			isIPv6 = true
+			break
+		}
+	}
+	if !isIPv6 {
+		// Not an IP address at all
+		return ip
+	}
+
+	ipv6 := net.ParseIP(ip)
+	if ipv6 == nil {
+		return ip
+	}
+
+	return ipv6.Mask(net.CIDRMask(64, 128)).String()
 }

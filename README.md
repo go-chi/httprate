@@ -51,20 +51,25 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
-	// Enable httprate request limiter of 100 requests per minute.
+	// Enable httprate request limiter of 100 requests per minute, keyed by the
+	// client IP.
 	//
-	// In the code example below, rate-limiting is bound to the request's
-	// RemoteAddr (the TCP peer) via the KeyByIP key function.
-	//
-	// If your app runs behind a reverse proxy or CDN, RemoteAddr is the proxy,
-	// not the client — rate-limit by a trusted client IP instead. See
-	// "Rate limit by client IP behind a proxy" below.
+	// There is no safe default IP source, so you state your trust model
+	// explicitly: one of chi's middleware.ClientIPFrom* middlewares (chi v5.3.0+)
+	// resolves the client IP into the request context, and
+	// KeyFromContext(middleware.GetClientIP) reads it. Pick the chi
+	// ClientIPFrom* that matches your deployment — here we assume
+	// the server is directly exposed to clients (no proxy), so the client IP is
+	// the TCP peer (RemoteAddr). Behind a reverse proxy or CDN, use
+	// ClientIPFromXFF / ClientIPFromHeader instead; see "Rate limit by client IP
+	// behind a proxy" below.
 	//
 	// To have a single rate-limiter for all requests, use a constant key:
 	// httprate.LimitBy(.., httprate.Key("*")).
 	//
 	// Please see _example/main.go for more, or read the library code.
-	r.Use(httprate.LimitBy(100, time.Minute, httprate.KeyByIP))
+	r.Use(middleware.ClientIPFromRemoteAddr)
+	r.Use(httprate.LimitBy(100, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)))
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("."))
@@ -133,7 +138,7 @@ context.
 r.Use(httprate.LimitBy(
 	10,             // requests
 	10*time.Second, // per duration
-	httprate.JoinKeys(httprate.KeyByIP, httprate.KeyByEndpoint),
+	httprate.JoinKeys(httprate.KeyFromContext(middleware.GetClientIP), httprate.KeyByEndpoint),
 ))
 ```
 
@@ -182,7 +187,7 @@ The default response is `HTTP 429` with `Too Many Requests` body. You can overri
 r.Use(httprate.LimitBy(
 	10,
 	time.Minute,
-	httprate.KeyByIP,
+	httprate.KeyFromContext(middleware.GetClientIP),
 	httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error": "Rate-limited. Please, slow down."}`, http.StatusTooManyRequests)
 	}),
@@ -201,7 +206,7 @@ An error can be returned by:
 r.Use(httprate.LimitBy(
 	10,
 	time.Minute,
-	httprate.KeyByIP,
+	httprate.KeyFromContext(middleware.GetClientIP),
 	httprate.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
 		http.Error(w, fmt.Sprintf(`{"error": %q}`, err), http.StatusPreconditionRequired)
 	}),
@@ -215,7 +220,7 @@ r.Use(httprate.LimitBy(
 r.Use(httprate.LimitBy(
 	1000,
 	time.Minute,
-	httprate.KeyByIP,
+	httprate.KeyFromContext(middleware.GetClientIP),
 	httprate.WithResponseHeaders(httprate.ResponseHeaders{
 		Limit:      "X-RateLimit-Limit",
 		Remaining:  "X-RateLimit-Remaining",
@@ -232,7 +237,7 @@ r.Use(httprate.LimitBy(
 r.Use(httprate.LimitBy(
 	1000,
 	time.Minute,
-	httprate.KeyByIP,
+	httprate.KeyFromContext(middleware.GetClientIP),
 	httprate.WithResponseHeaders(httprate.ResponseHeaders{}),
 ))
 ```
