@@ -92,7 +92,5 @@ func (c *localCounter) evict(currentWindow time.Time) {
 }
 
 func limitCounterKey(key string) uint64 {
-	h := xxh3.New()
-	h.WriteString(key)
-	return h.Sum64()
+	return xxh3.HashString(key)
 }
