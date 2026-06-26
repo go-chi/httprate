@@ -7,7 +7,7 @@ toolchain go1.24.1
 replace github.com/go-chi/httprate => ../
 
 require (
-	github.com/go-chi/chi/v5 v5.1.0
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-chi/httprate v0.0.0-00010101000000-000000000000
 )
 

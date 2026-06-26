@@ -16,8 +16,31 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
-	// Rate-limit all routes at 1000 req/min by IP address.
-	r.Use(httprate.LimitByIP(1000, time.Minute))
+	// Rate-limit all routes at 1000 req/min by IP address (RemoteAddr, the TCP
+	// peer). Use this when the server is directly exposed to clients.
+	r.Use(httprate.LimitBy(1000, time.Minute, httprate.KeyByIP))
+
+	// Rate-limit by the *trusted* client IP when running behind a reverse
+	// proxy / CDN. middleware.ClientIPFromXFF resolves the client IP from the
+	// X-Forwarded-For chain, skipping the trusted proxy CIDR(s), and stashes it
+	// in the request context; KeyFromContext(middleware.GetClientIP) reads it.
+	//
+	// This is the safe replacement for the deprecated, spoofable
+	// httprate.LimitByRealIP — a client can no longer forge X-Forwarded-For to
+	// evade the limit or lock out another user.
+	//
+	// Pick the ClientIPFrom* middleware that matches your deployment; here we
+	// assume one trusted proxy in 10.0.0.0/8.
+	r.Route("/proxied", func(r chi.Router) {
+		r.Use(middleware.ClientIPFromXFF("10.0.0.0/8"))
+		r.Use(httprate.LimitBy(100, time.Minute,
+			httprate.KeyFromContext(middleware.GetClientIP),
+		))
+
+		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("proxied: 100 req/min per trusted client IP\n"))
+		})
+	})
 
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
@@ -69,6 +92,7 @@ func main() {
 	log.Printf(`curl -v http://localhost:3333?[0-1000]`)
 	log.Printf(`curl -v http://localhost:3333/admin?[1-12]`)
 	log.Printf(`curl -v http://localhost:3333/login\?[1-8] --data '{"username":"alice","password":"***"}'`)
+	log.Printf(`curl -v -H 'X-Forwarded-For: 1.2.3.4, 203.0.113.5' http://localhost:3333/proxied?[1-102]`)
 
 	http.ListenAndServe(":3333", r)
 }

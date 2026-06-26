@@ -28,3 +28,6 @@ jobs:
 
       - name: Test
         run: go test -v ./...
+
+      - name: Test example (chi integration)
+        run: cd ./_example && go test -v ./...
