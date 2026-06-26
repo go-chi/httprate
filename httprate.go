@@ -24,10 +24,10 @@ func Limit(requestLimit int, windowLength time.Duration, options ...Option) func
 //	r.Use(middleware.ClientIPFromXFF("10.0.0.0/8"))
 //	r.Use(httprate.LimitBy(100, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)))
 //
-// Use ComposeKeys to rate-limit by more than one dimension at once:
+// Use JoinKeys to rate-limit by more than one dimension at once:
 //
 //	r.Use(httprate.LimitBy(100, time.Minute,
-//		httprate.ComposeKeys(httprate.KeyByIP, httprate.KeyByEndpoint)))
+//		httprate.JoinKeys(httprate.KeyByIP, httprate.KeyByEndpoint)))
 func LimitBy(requestLimit int, windowLength time.Duration, keyFn KeyFunc, options ...Option) func(next http.Handler) http.Handler {
 	return Limit(requestLimit, windowLength, append([]Option{WithKeyFuncs(keyFn)}, options...)...)
 }
@@ -196,16 +196,16 @@ func WithNoop() Option {
 	return func(rl *RateLimiter) {}
 }
 
-// ComposeKeys concatenates the results of several KeyFuncs into a single key,
-// joined with ":" separators, so they can be passed to LimitBy's positional
-// key slot for multi-dimensional rate-limiting:
+// JoinKeys joins the results of several KeyFuncs into a single key with ":"
+// separators, so they can be passed to LimitBy's positional key slot for
+// multi-dimensional rate-limiting:
 //
 //	r.Use(httprate.LimitBy(100, time.Minute,
-//		httprate.ComposeKeys(httprate.KeyByIP, httprate.KeyByEndpoint)))
+//		httprate.JoinKeys(httprate.KeyByIP, httprate.KeyByEndpoint)))
 //
 // It is the positional-argument equivalent of WithKeyFuncs. If any component
-// KeyFunc returns an error, the composed key returns that error.
-func ComposeKeys(fns ...KeyFunc) KeyFunc {
+// KeyFunc returns an error, the joined key returns that error.
+func JoinKeys(fns ...KeyFunc) KeyFunc {
 	return composedKeyFunc(fns...)
 }
 

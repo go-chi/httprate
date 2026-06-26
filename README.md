@@ -132,7 +132,7 @@ context.
 r.Use(httprate.LimitBy(
 	10,             // requests
 	10*time.Second, // per duration
-	httprate.ComposeKeys(httprate.KeyByIP, httprate.KeyByEndpoint),
+	httprate.JoinKeys(httprate.KeyByIP, httprate.KeyByEndpoint),
 ))
 ```
 

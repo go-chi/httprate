@@ -70,10 +70,10 @@ func TestKeyFromContext_EmptyKey(t *testing.T) {
 	wantCodes(t, codes, []int{200, 200, 429})
 }
 
-// TestComposeKeys verifies multi-dimensional rate-limiting: the same IP hitting
+// TestJoinKeys verifies multi-dimensional rate-limiting: the same IP hitting
 // two different endpoints gets two independent buckets.
-func TestComposeKeys(t *testing.T) {
-	h := httprate.LimitBy(1, time.Minute, httprate.ComposeKeys(httprate.KeyByIP, httprate.KeyByEndpoint))(okHandler())
+func TestJoinKeys(t *testing.T) {
+	h := httprate.LimitBy(1, time.Minute, httprate.JoinKeys(httprate.KeyByIP, httprate.KeyByEndpoint))(okHandler())
 
 	get := func(path string) int {
 		req := httptest.NewRequest("GET", path, nil)
@@ -94,16 +94,16 @@ func TestComposeKeys(t *testing.T) {
 	}
 }
 
-// TestComposeKeys_EmptyComponent verifies that an empty key component (e.g. an
+// TestJoinKeys_EmptyComponent verifies that an empty key component (e.g. an
 // unauthenticated request with no tenant) is passed through without error or
-// panic — the empty component just becomes part of the composed key.
-func TestComposeKeys_EmptyComponent(t *testing.T) {
+// panic — the empty component just becomes part of the joined key.
+func TestJoinKeys_EmptyComponent(t *testing.T) {
 	getTenant := func(ctx context.Context) string {
 		v, _ := ctx.Value("tenant").(string)
 		return v
 	}
 
-	h := httprate.LimitBy(2, time.Minute, httprate.ComposeKeys(httprate.KeyByIP, httprate.KeyFromContext(getTenant)))(okHandler())
+	h := httprate.LimitBy(2, time.Minute, httprate.JoinKeys(httprate.KeyByIP, httprate.KeyFromContext(getTenant)))(okHandler())
 
 	// No "tenant" in context: empty component, no error, request still served.
 	assertCodes(t, h, requestsFrom("1.2.3.4:1111", 3), []int{200, 200, 429})
