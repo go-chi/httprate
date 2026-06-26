@@ -22,7 +22,7 @@ import (
 // Use JoinKeys to rate-limit by more than one dimension at once:
 //
 //	r.Use(httprate.LimitBy(100, time.Minute,
-//		httprate.JoinKeys(httprate.KeyByIP, httprate.KeyByEndpoint)))
+//		httprate.JoinKeys(httprate.KeyFromContext(middleware.GetClientIP), httprate.KeyByEndpoint)))
 func LimitBy(requestLimit int, windowLength time.Duration, keyFn KeyFunc, options ...Option) func(next http.Handler) http.Handler {
 	return NewRateLimiter(requestLimit, windowLength, append([]Option{WithKeyFuncs(keyFn)}, options...)...).Handler
 }
@@ -115,7 +115,7 @@ func WithNoop() Option {
 // multi-dimensional rate-limiting:
 //
 //	r.Use(httprate.LimitBy(100, time.Minute,
-//		httprate.JoinKeys(httprate.KeyByIP, httprate.KeyByEndpoint)))
+//		httprate.JoinKeys(httprate.KeyFromContext(middleware.GetClientIP), httprate.KeyByEndpoint)))
 //
 // It is the positional-argument equivalent of WithKeyFuncs. If any component
 // KeyFunc returns an error, the joined key returns that error.
