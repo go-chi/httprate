@@ -60,7 +60,8 @@ func main() {
 	// not the client — rate-limit by a trusted client IP instead. See
 	// "Rate limit by client IP behind a proxy" below.
 	//
-	// To have a single rate-limiter for all requests, use httprate.LimitAll(..).
+	// To have a single rate-limiter for all requests, use a constant key:
+	// httprate.LimitBy(.., httprate.Key("*")).
 	//
 	// Please see _example/main.go for more, or read the library code.
 	r.Use(httprate.LimitBy(100, time.Minute, httprate.KeyByIP))
@@ -178,9 +179,10 @@ r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
 The default response is `HTTP 429` with `Too Many Requests` body. You can override it with:
 
 ```go
-r.Use(httprate.Limit(
+r.Use(httprate.LimitBy(
 	10,
 	time.Minute,
+	httprate.KeyByIP,
 	httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error": "Rate-limited. Please, slow down."}`, http.StatusTooManyRequests)
 	}),
@@ -196,9 +198,10 @@ An error can be returned by:
     - Backends that fall-back to the local in-memory counter (e.g. [httprate-redis](https://github.com/go-chi/httprate-redis)) can choose not to return any errors either
 
 ```go
-r.Use(httprate.Limit(
+r.Use(httprate.LimitBy(
 	10,
 	time.Minute,
+	httprate.KeyByIP,
 	httprate.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
 		http.Error(w, fmt.Sprintf(`{"error": %q}`, err), http.StatusPreconditionRequired)
 	}),
@@ -209,9 +212,10 @@ r.Use(httprate.Limit(
 ### Send custom response headers
 
 ```go
-r.Use(httprate.Limit(
+r.Use(httprate.LimitBy(
 	1000,
 	time.Minute,
+	httprate.KeyByIP,
 	httprate.WithResponseHeaders(httprate.ResponseHeaders{
 		Limit:      "X-RateLimit-Limit",
 		Remaining:  "X-RateLimit-Remaining",
@@ -225,9 +229,10 @@ r.Use(httprate.Limit(
 ### Omit response headers
 
 ```go
-r.Use(httprate.Limit(
+r.Use(httprate.LimitBy(
 	1000,
 	time.Minute,
+	httprate.KeyByIP,
 	httprate.WithResponseHeaders(httprate.ResponseHeaders{}),
 ))
 ```

@@ -51,12 +51,12 @@ func main() {
 		})
 
 		// Rate-limit admin routes at 10 req/s by userID.
-		r.Use(httprate.Limit(
+		r.Use(httprate.LimitBy(
 			10, time.Second,
-			httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+			func(r *http.Request) (string, error) {
 				token, _ := r.Context().Value("userID").(string)
 				return token, nil
-			}),
+			},
 		))
 
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
