@@ -23,7 +23,7 @@ import (
 func TestLimitByClientIP_RemoteAddr(t *testing.T) {
 	h := chain(
 		middleware.ClientIPFromRemoteAddr,
-		httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)),
+		httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(clientIPKey)),
 		okHandler(),
 	)
 
@@ -32,6 +32,44 @@ func TestLimitByClientIP_RemoteAddr(t *testing.T) {
 
 	// A different client gets its own bucket.
 	assertCodes(t, h, requestsFrom("5.6.7.8:2222", 1), []int{200})
+}
+
+// TestLimitByClientIP_IPv6Bucket proves clientIPKey buckets IPv6 clients by
+// their /64: addresses that differ only within the /64 share one bucket, so a
+// client cannot rotate within its own /64 (trivial with SLAAC) to win fresh
+// rate-limit buckets. A different /64 gets its own bucket. Without the /64
+// canonicalization, GetClientIP returns the full address and each of these
+// would be a separate key — the bypass this guards against.
+func TestLimitByClientIP_IPv6Bucket(t *testing.T) {
+	h := chain(
+		middleware.ClientIPFromRemoteAddr,
+		httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(clientIPKey)),
+		okHandler(),
+	)
+
+	// Three addresses in the same /64: the 3rd is blocked.
+	codes := make([]int, 0, 3)
+	for _, addr := range []string{
+		"[2001:db8:abcd:1234::1]:5555",
+		"[2001:db8:abcd:1234:ffff::2]:6666",
+		"[2001:db8:abcd:1234::3]:7777",
+	} {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.RemoteAddr = addr
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		codes = append(codes, rec.Result().StatusCode)
+	}
+	wantCodes(t, codes, []int{200, 200, 429})
+
+	// A different /64 has its own bucket.
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "[2001:db8:abcd:5678::1]:8888"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if code := rec.Result().StatusCode; code != 200 {
+		t.Fatalf("different /64 = %d, want 200 (separate bucket)", code)
+	}
 }
 
 // TestLimitByClientIP_SpoofedXFF is the fix-in-action test. The server sits
@@ -45,7 +83,7 @@ func TestLimitByClientIP_RemoteAddr(t *testing.T) {
 func TestLimitByClientIP_SpoofedXFF(t *testing.T) {
 	h := chain(
 		middleware.ClientIPFromXFF("10.0.0.0/8"),
-		httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)),
+		httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(clientIPKey)),
 		okHandler(),
 	)
 
@@ -79,7 +117,7 @@ func TestLimitByClientIP_SpoofedXFF(t *testing.T) {
 func TestLimitByClientIP_Misconfig(t *testing.T) {
 	h := chain(
 		// No middleware.ClientIPFrom* installed on purpose.
-		httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)),
+		httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(clientIPKey)),
 		okHandler(),
 	)
 

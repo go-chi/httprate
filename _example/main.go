@@ -5,12 +5,38 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
 )
+
+// clientIPKey is the rate-limit key: the trusted client IP resolved by whichever
+// middleware.ClientIPFrom* runs upstream, canonicalized for rate-limiting.
+//
+// chi's middleware.GetClientIPAddr returns the *full* client IP as a stdlib
+// net/netip.Addr (the exact address — right for logging and audit). For
+// rate-limiting we instead bucket IPv6 clients by their /64 prefix: an IPv6 host
+// typically owns a whole /64 (2^64 addresses via SLAAC), so without this a client
+// could rotate within its own /64 to win a fresh bucket on every request and
+// bypass the per-IP limit. IPv4 addresses are used as-is.
+//
+// Returns "" if no client IP was resolved (no ClientIPFrom* installed upstream);
+// every request then shares one global bucket — see the WARNING on
+// httprate.KeyFromContext.
+func clientIPKey(ctx context.Context) string {
+	ip := middleware.GetClientIPAddr(ctx)
+	if !ip.IsValid() {
+		return ""
+	}
+	if ip.Is4() {
+		return ip.String()
+	}
+	// IPv6: bucket by /64.
+	return netip.PrefixFrom(ip, 64).Masked().Addr().String()
+}
 
 func main() {
 	r := chi.NewRouter()
@@ -20,10 +46,11 @@ func main() {
 	// default IP source, so state the trust model explicitly: this server is
 	// directly exposed to clients, so the client IP is the TCP peer (RemoteAddr),
 	// resolved by middleware.ClientIPFromRemoteAddr and read via
-	// KeyFromContext(middleware.GetClientIP). Behind a proxy, use ClientIPFromXFF
-	// / ClientIPFromHeader instead (see the /proxied route below).
+	// KeyFromContext(clientIPKey) (which canonicalizes IPv6 to /64 — see
+	// clientIPKey below). Behind a proxy, use ClientIPFromXFF / ClientIPFromHeader
+	// instead (see the /proxied route below).
 	r.Use(middleware.ClientIPFromRemoteAddr)
-	r.Use(httprate.LimitBy(1000, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)))
+	r.Use(httprate.LimitBy(1000, time.Minute, httprate.KeyFromContext(clientIPKey)))
 
 	// Rate-limit by the *trusted* client IP when running behind a reverse
 	// proxy / CDN. middleware.ClientIPFromXFF resolves the client IP from the
@@ -39,7 +66,7 @@ func main() {
 	r.Route("/proxied", func(r chi.Router) {
 		r.Use(middleware.ClientIPFromXFF("10.0.0.0/8"))
 		r.Use(httprate.LimitBy(100, time.Minute,
-			httprate.KeyFromContext(middleware.GetClientIP),
+			httprate.KeyFromContext(clientIPKey),
 		))
 
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {

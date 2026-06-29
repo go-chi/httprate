@@ -67,6 +67,11 @@ func main() {
 	// To have a single rate-limiter for all requests, use a constant key:
 	// httprate.LimitBy(.., httprate.Key("*")).
 	//
+	// NOTE: middleware.GetClientIP returns the full client IP. To stop IPv6
+	// clients from rotating within their /64 to win fresh buckets, canonicalize
+	// the IP to /64 — see "Rate limit by client IP behind a proxy" below and
+	// _example/main.go.
+	//
 	// Please see _example/main.go for more, or read the library code.
 	r.Use(middleware.ClientIPFromRemoteAddr)
 	r.Use(httprate.LimitBy(100, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)))
@@ -91,10 +96,13 @@ client-supplied header blindly is exactly the spoofing bug behind the deprecated
 
 Use chi's [`middleware.ClientIPFrom*`](https://pkg.go.dev/github.com/go-chi/chi/v5/middleware#ClientIPFromXFF)
 middlewares (chi `v5.3.0+`) to resolve a trusted client IP, then rate-limit by
-it with `LimitBy` + `KeyFromContext(middleware.GetClientIP)`:
+it with `LimitBy` + `KeyFromContext`:
 
 ```go
 import (
+	"context"
+	"net/netip"
+
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
 )
@@ -105,9 +113,34 @@ r.Use(middleware.ClientIPFromXFF("10.0.0.0/8"))
 
 // 2. Rate-limit by that trusted client IP.
 r.Use(httprate.LimitBy(100, time.Minute,
-	httprate.KeyFromContext(middleware.GetClientIP),
+	httprate.KeyFromContext(clientIPKey),
 ))
+
+// clientIPKey reads the trusted client IP resolved in step 1 and canonicalizes
+// it for rate-limiting. chi's middleware.GetClientIPAddr returns the *full*
+// client IP as a net/netip.Addr; we bucket IPv6 clients by their /64 prefix so
+// a client can't rotate within its own /64 (2^64 addresses via SLAAC) to win a
+// fresh bucket on every request. IPv4 is used as-is.
+func clientIPKey(ctx context.Context) string {
+	ip := middleware.GetClientIPAddr(ctx)
+	if !ip.IsValid() {
+		return "" // no ClientIPFrom* upstream — see the note below
+	}
+	if ip.Is4() {
+		return ip.String()
+	}
+	return netip.PrefixFrom(ip, 64).Masked().Addr().String() // IPv6 → /64
+}
 ```
+
+> [!NOTE]
+> Rate-limiting by the full IPv6 address (`KeyFromContext(middleware.GetClientIP)`)
+> lets an IPv6 client rotate within its own `/64` to get a fresh bucket per
+> request and bypass the limit. The `clientIPKey` helper above buckets IPv6 by
+> `/64` — adjust the prefix (e.g. `/56`, `/48`) if your clients are delegated a
+> larger block. The deprecated `KeyByIP` / `KeyByRealIP` did this `/64`
+> canonicalization for you; the explicit helper keeps it while making the trust
+> model and prefix your choice.
 
 Pick the one `ClientIPFrom*` middleware that matches how requests reach you:
 
