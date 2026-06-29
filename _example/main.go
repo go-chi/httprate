@@ -16,8 +16,44 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
-	// Rate-limit all routes at 1000 req/min by IP address.
-	r.Use(httprate.LimitByIP(1000, time.Minute))
+	// Rate-limit all routes at 1000 req/min by client IP. There is no safe
+	// default IP source, so state the trust model explicitly: this server is
+	// directly exposed to clients, so the client IP is the TCP peer (RemoteAddr),
+	// resolved by middleware.ClientIPFromRemoteAddr. Behind a proxy, use
+	// ClientIPFromXFF / ClientIPFromHeader instead (see the /proxied route below).
+	//
+	// The key func reads the resolved IP with chi's middleware.GetClientIP and
+	// canonicalizes it with httprate.CanonicalizeIP, which buckets IPv6 clients
+	// by their /64: an IPv6 host typically owns a whole /64 (2^64 addresses via
+	// SLAAC), so keying on the full address would let a client rotate within its
+	// own /64 to win a fresh bucket per request and bypass the limit.
+	r.Use(middleware.ClientIPFromRemoteAddr)
+	r.Use(httprate.LimitBy(1000, time.Minute, func(r *http.Request) (string, error) {
+		return httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
+	}))
+
+	// Rate-limit by the *trusted* client IP when running behind a reverse
+	// proxy / CDN. middleware.ClientIPFromXFF resolves the client IP from the
+	// X-Forwarded-For chain, skipping the trusted proxy CIDR(s), and stashes it
+	// in the request context; the key func reads it back (same /64 bucketing as
+	// the root limiter above).
+	//
+	// This is the safe replacement for the deprecated, spoofable
+	// httprate.LimitByRealIP — a client can no longer forge X-Forwarded-For to
+	// evade the limit or lock out another user.
+	//
+	// Pick the ClientIPFrom* middleware that matches your deployment; here we
+	// assume one trusted proxy in 10.0.0.0/8.
+	r.Route("/proxied", func(r chi.Router) {
+		r.Use(middleware.ClientIPFromXFF("10.0.0.0/8"))
+		r.Use(httprate.LimitBy(100, time.Minute, func(r *http.Request) (string, error) {
+			return httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
+		}))
+
+		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("proxied: 100 req/min per trusted client IP\n"))
+		})
+	})
 
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
@@ -28,12 +64,12 @@ func main() {
 		})
 
 		// Rate-limit admin routes at 10 req/s by userID.
-		r.Use(httprate.Limit(
+		r.Use(httprate.LimitBy(
 			10, time.Second,
-			httprate.WithKeyFuncs(func(r *http.Request) (string, error) {
+			func(r *http.Request) (string, error) {
 				token, _ := r.Context().Value("userID").(string)
 				return token, nil
-			}),
+			},
 		))
 
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +105,7 @@ func main() {
 	log.Printf(`curl -v http://localhost:3333?[0-1000]`)
 	log.Printf(`curl -v http://localhost:3333/admin?[1-12]`)
 	log.Printf(`curl -v http://localhost:3333/login\?[1-8] --data '{"username":"alice","password":"***"}'`)
+	log.Printf(`curl -v -H 'X-Forwarded-For: 1.2.3.4, 203.0.113.5' http://localhost:3333/proxied?[1-102]`)
 
 	http.ListenAndServe(":3333", r)
 }
