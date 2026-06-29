@@ -3,7 +3,6 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
-	"net/netip"
 	"testing"
 	"time"
 
@@ -12,17 +11,11 @@ import (
 )
 
 // clientIPKey mirrors the inline rate-limit key funcs in main.go: the trusted
-// client IP resolved by an upstream middleware.ClientIPFrom*, with IPv6 bucketed
-// to its /64. Shared here so each test exercises the exact key the example uses.
+// client IP resolved by an upstream middleware.ClientIPFrom*, canonicalized
+// with httprate.CanonicalizeIP (IPv6 bucketed to /64). Shared here so each test
+// exercises the exact key the example uses.
 func clientIPKey(r *http.Request) (string, error) {
-	ip := middleware.GetClientIPAddr(r.Context())
-	if !ip.IsValid() {
-		return "", nil
-	}
-	if ip.Is4() {
-		return ip.String(), nil
-	}
-	return netip.PrefixFrom(ip, 64).Masked().Addr().String(), nil // IPv6 → /64
+	return httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
 }
 
 // These are integration tests for the safe client-IP rate-limiting pattern:

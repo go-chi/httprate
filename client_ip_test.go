@@ -10,19 +10,20 @@ import (
 	"github.com/go-chi/httprate"
 )
 
-// TestKeyFromContext verifies that LimitBy keys off the value the extractor
-// pulls from the request context: requests carrying the same value share a
-// bucket, different values get their own.
+// TestKeyFunc_FromContext verifies that LimitBy keys off whatever a KeyFunc
+// reads from the request context: requests carrying the same value share a
+// bucket, different values get their own. A KeyFunc receives *http.Request, so
+// it reads r.Context() directly — no special context helper needed.
 //
 // Integration with chi's middleware.ClientIPFrom* / middleware.GetClientIP
 // lives in _example/client_ip_test.go so the main module stays chi-free.
-func TestKeyFromContext(t *testing.T) {
+func TestKeyFunc_FromContext(t *testing.T) {
 	type ctxKey string
 	const tenantKey ctxKey = "tenant"
 
-	extractor := func(ctx context.Context) string {
-		v, _ := ctx.Value(tenantKey).(string)
-		return v
+	keyByTenant := func(r *http.Request) (string, error) {
+		v, _ := r.Context().Value(tenantKey).(string)
+		return v, nil
 	}
 
 	withTenant := func(tenant string, next http.Handler) http.Handler {
@@ -31,7 +32,7 @@ func TestKeyFromContext(t *testing.T) {
 		})
 	}
 
-	limiter := httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(extractor))
+	limiter := httprate.LimitBy(2, time.Minute, keyByTenant)
 
 	get := func(tenant string) int {
 		h := withTenant(tenant, limiter(okHandler()))
@@ -49,14 +50,14 @@ func TestKeyFromContext(t *testing.T) {
 	}
 }
 
-// TestKeyFromContext_EmptyKey documents the silent-global-bucket footgun: when
-// the extractor returns "" (e.g. the upstream middleware that should populate
-// the context was not installed), every request shares one bucket. Strictly
-// more restrictive, not a security regression.
-func TestKeyFromContext_EmptyKey(t *testing.T) {
-	emptyExtractor := func(ctx context.Context) string { return "" }
+// TestKeyFunc_EmptyKey documents the silent-global-bucket footgun: when the
+// KeyFunc returns "" (e.g. the upstream middleware that should populate the
+// context was not installed), every request shares one bucket. Strictly more
+// restrictive, not a security regression.
+func TestKeyFunc_EmptyKey(t *testing.T) {
+	emptyKey := func(r *http.Request) (string, error) { return "", nil }
 
-	h := httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(emptyExtractor))(okHandler())
+	h := httprate.LimitBy(2, time.Minute, emptyKey)(okHandler())
 
 	// Three different sources still share one bucket; the 3rd is blocked.
 	codes := make([]int, 0, 3)
@@ -98,12 +99,12 @@ func TestJoinKeys(t *testing.T) {
 // unauthenticated request with no tenant) is passed through without error or
 // panic — the empty component just becomes part of the joined key.
 func TestJoinKeys_EmptyComponent(t *testing.T) {
-	getTenant := func(ctx context.Context) string {
-		v, _ := ctx.Value("tenant").(string)
-		return v
+	keyByTenant := func(r *http.Request) (string, error) {
+		v, _ := r.Context().Value("tenant").(string)
+		return v, nil
 	}
 
-	h := httprate.LimitBy(2, time.Minute, httprate.JoinKeys(httprate.KeyByIP, httprate.KeyFromContext(getTenant)))(okHandler())
+	h := httprate.LimitBy(2, time.Minute, httprate.JoinKeys(httprate.KeyByIP, keyByTenant))(okHandler())
 
 	// No "tenant" in context: empty component, no error, request still served.
 	assertCodes(t, h, requestsFrom("1.2.3.4:1111", 3), []int{200, 200, 429})

@@ -1,7 +1,7 @@
 package httprate
 
 import (
-	"context"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -13,16 +13,19 @@ import (
 // key is a required positional argument, so every call site has to state, on
 // purpose, what it rate-limits by.
 //
-// To rate-limit by client IP behind a proxy, pair it with one of chi's
-// middleware.ClientIPFrom* middlewares (chi v5.3.0+) and KeyFromContext:
+// To rate-limit by a trusted client IP behind a proxy, resolve the IP with one
+// of chi's middleware.ClientIPFrom* middlewares (chi v5.3.0+) and read it back
+// in the KeyFunc; CanonicalizeIP buckets IPv6 clients by their /64:
 //
 //	r.Use(middleware.ClientIPFromXFF("10.0.0.0/8"))
-//	r.Use(httprate.LimitBy(100, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)))
+//	r.Use(httprate.LimitBy(100, time.Minute, func(r *http.Request) (string, error) {
+//		return httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
+//	}))
 //
 // Use JoinKeys to rate-limit by more than one dimension at once:
 //
 //	r.Use(httprate.LimitBy(100, time.Minute,
-//		httprate.JoinKeys(httprate.KeyFromContext(middleware.GetClientIP), httprate.KeyByEndpoint)))
+//		httprate.JoinKeys(clientIPKey, httprate.KeyByEndpoint)))
 func LimitBy(requestLimit int, windowLength time.Duration, keyFn KeyFunc, options ...Option) func(next http.Handler) http.Handler {
 	return NewRateLimiter(requestLimit, windowLength, append([]Option{WithKeyFuncs(keyFn)}, options...)...).Handler
 }
@@ -45,29 +48,54 @@ func Key(key string) func(r *http.Request) (string, error) {
 	}
 }
 
-// KeyFromContext builds a KeyFunc that reads the rate-limit key from the
-// request context using the given extractor. It is the safe, router-agnostic
-// way to rate-limit by a trusted client IP: pair it with chi's
-// middleware.GetClientIP (chi v5.3.0+), which returns the IP resolved by
-// whichever middleware.ClientIPFrom* middleware you installed upstream.
+// CanonicalizeIP normalizes a client IP string for use as a rate-limit key:
+//
+//   - IPv4 addresses are returned unchanged.
+//   - IPv6 addresses are reduced to their /64 prefix. An IPv6 client typically
+//     controls a whole /64 (2^64 addresses via SLAAC), so keying on the full
+//     address would let it rotate within its own /64 to win a fresh bucket per
+//     request and bypass a per-IP limit. Widen/narrow the prefix yourself if your
+//     clients are delegated a larger block (e.g. a /56 or /48).
+//   - Any other string, including "", is returned unchanged.
+//
+// httprate stays router-agnostic, so it does not resolve the client IP for you —
+// pair CanonicalizeIP with whatever does. With chi's middleware.ClientIPFrom*
+// (chi v5.3.0+) and middleware.GetClientIP:
 //
 //	r.Use(middleware.ClientIPFromXFF("10.0.0.0/8"))
-//	r.Use(httprate.LimitBy(100, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)))
+//	r.Use(httprate.LimitBy(100, time.Minute, func(r *http.Request) (string, error) {
+//		return httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
+//	}))
 //
-// The extractor is generic over func(context.Context) string, so it is not
-// tied to chi — any framework or custom middleware that stashes a value in the
-// request context (tenant ID, API key, user ID, ...) works the same way.
-//
-// WARNING: if the extractor returns an empty string, every request shares a
-// single rate-limit bucket and the limit fires after requestLimit requests
-// system-wide. When using chi's middleware.GetClientIP, make sure exactly one
-// of middleware.ClientIPFromHeader, middleware.ClientIPFromXFF,
-// middleware.ClientIPFromXFFTrustedProxies, or middleware.ClientIPFromRemoteAddr
-// is installed upstream; otherwise GetClientIP returns "" for every request.
-func KeyFromContext(extractor func(ctx context.Context) string) KeyFunc {
-	return func(r *http.Request) (string, error) {
-		return extractor(r.Context()), nil
+// WARNING: if the resolver returns "" (e.g. no ClientIPFrom* middleware is
+// installed upstream), CanonicalizeIP returns "" and every request shares a
+// single global rate-limit bucket. Strictly more restrictive, but a footgun —
+// make sure the client IP is actually resolved upstream.
+func CanonicalizeIP(ip string) string {
+	isIPv6 := false
+	// This is how net.ParseIP decides if an address is IPv6
+	// https://cs.opensource.google/go/go/+/refs/tags/go1.17.7:src/net/ip.go;l=704
+	for i := 0; !isIPv6 && i < len(ip); i++ {
+		switch ip[i] {
+		case '.':
+			// IPv4
+			return ip
+		case ':':
+			// IPv6
+			isIPv6 = true
+		}
 	}
+	if !isIPv6 {
+		// Not an IP address at all
+		return ip
+	}
+
+	ipv6 := net.ParseIP(ip)
+	if ipv6 == nil {
+		return ip
+	}
+
+	return ipv6.Mask(net.CIDRMask(64, 128)).String()
 }
 
 func KeyByEndpoint(r *http.Request) (string, error) {
@@ -115,9 +143,10 @@ func WithNoop() Option {
 // multi-dimensional rate-limiting:
 //
 //	r.Use(httprate.LimitBy(100, time.Minute,
-//		httprate.JoinKeys(httprate.KeyFromContext(middleware.GetClientIP), httprate.KeyByEndpoint)))
+//		httprate.JoinKeys(clientIPKey, httprate.KeyByEndpoint)))
 //
-// It is the positional-argument equivalent of WithKeyFuncs. If any component
+// where clientIPKey is your own client-IP KeyFunc (see LimitBy and
+// CanonicalizeIP). It is the positional-argument equivalent of WithKeyFuncs. If any component
 // KeyFunc returns an error, the joined key returns that error.
 func JoinKeys(fns ...KeyFunc) KeyFunc {
 	return func(r *http.Request) (string, error) {

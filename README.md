@@ -56,25 +56,24 @@ func main() {
 	//
 	// There is no safe default IP source, so you state your trust model
 	// explicitly: one of chi's middleware.ClientIPFrom* middlewares (chi v5.3.0+)
-	// resolves the client IP into the request context, and
-	// KeyFromContext(middleware.GetClientIP) reads it. Pick the chi
-	// ClientIPFrom* that matches your deployment — here we assume
-	// the server is directly exposed to clients (no proxy), so the client IP is
-	// the TCP peer (RemoteAddr). Behind a reverse proxy or CDN, use
-	// ClientIPFromXFF / ClientIPFromHeader instead; see "Rate limit by client IP
-	// behind a proxy" below.
+	// resolves the client IP, and the KeyFunc reads it back with
+	// middleware.GetClientIP. Pick the chi ClientIPFrom* that matches your
+	// deployment — here we assume the server is directly exposed to clients (no
+	// proxy), so the client IP is the TCP peer (RemoteAddr). Behind a reverse
+	// proxy or CDN, use ClientIPFromXFF / ClientIPFromHeader instead; see "Rate
+	// limit by client IP behind a proxy" below.
+	//
+	// httprate.CanonicalizeIP buckets IPv6 clients by their /64 so they can't
+	// rotate within it to win fresh buckets (see that section for why).
 	//
 	// To have a single rate-limiter for all requests, use a constant key:
 	// httprate.LimitBy(.., httprate.Key("*")).
 	//
-	// NOTE: middleware.GetClientIP returns the full client IP. To stop IPv6
-	// clients from rotating within their /64 to win fresh buckets, canonicalize
-	// the IP to /64 — see "Rate limit by client IP behind a proxy" below and
-	// _example/main.go.
-	//
 	// Please see _example/main.go for more, or read the library code.
 	r.Use(middleware.ClientIPFromRemoteAddr)
-	r.Use(httprate.LimitBy(100, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)))
+	r.Use(httprate.LimitBy(100, time.Minute, func(r *http.Request) (string, error) {
+		return httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
+	}))
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("."))
@@ -96,13 +95,10 @@ client-supplied header blindly is exactly the spoofing bug behind the deprecated
 
 Use chi's [`middleware.ClientIPFrom*`](https://pkg.go.dev/github.com/go-chi/chi/v5/middleware#ClientIPFromXFF)
 middlewares (chi `v5.3.0+`) to resolve a trusted client IP, then rate-limit by
-it with `LimitBy` + `KeyFromContext`:
+it with a `LimitBy` `KeyFunc` that reads it back and canonicalizes it:
 
 ```go
 import (
-	"context"
-	"net/netip"
-
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
 )
@@ -112,35 +108,23 @@ import (
 r.Use(middleware.ClientIPFromXFF("10.0.0.0/8"))
 
 // 2. Rate-limit by that trusted client IP.
-r.Use(httprate.LimitBy(100, time.Minute,
-	httprate.KeyFromContext(clientIPKey),
-))
+r.Use(httprate.LimitBy(100, time.Minute, clientIPKey))
 
-// clientIPKey reads the trusted client IP resolved in step 1 and canonicalizes
-// it for rate-limiting. chi's middleware.GetClientIPAddr returns the *full*
-// client IP as a net/netip.Addr; we bucket IPv6 clients by their /64 prefix so
-// a client can't rotate within its own /64 (2^64 addresses via SLAAC) to win a
-// fresh bucket on every request. IPv4 is used as-is.
-func clientIPKey(ctx context.Context) string {
-	ip := middleware.GetClientIPAddr(ctx)
-	if !ip.IsValid() {
-		return "" // no ClientIPFrom* upstream — see the note below
-	}
-	if ip.Is4() {
-		return ip.String()
-	}
-	return netip.PrefixFrom(ip, 64).Masked().Addr().String() // IPv6 → /64
+// clientIPKey is the rate-limit key. middleware.GetClientIP reads the IP
+// resolved in step 1; httprate.CanonicalizeIP buckets IPv6 clients by /64.
+func clientIPKey(r *http.Request) (string, error) {
+	return httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
 }
 ```
 
 > [!NOTE]
-> Rate-limiting by the full IPv6 address (`KeyFromContext(middleware.GetClientIP)`)
-> lets an IPv6 client rotate within its own `/64` to get a fresh bucket per
-> request and bypass the limit. The `clientIPKey` helper above buckets IPv6 by
-> `/64` — adjust the prefix (e.g. `/56`, `/48`) if your clients are delegated a
-> larger block. The deprecated `KeyByIP` / `KeyByRealIP` did this `/64`
-> canonicalization for you; the explicit helper keeps it while making the trust
-> model and prefix your choice.
+> `middleware.GetClientIP` returns the *full* client IP. Keying on it directly
+> lets an IPv6 client rotate within its own `/64` (2^64 addresses via SLAAC) to
+> get a fresh bucket per request and bypass the limit. `httprate.CanonicalizeIP`
+> buckets IPv6 by `/64` (IPv4 unchanged) — copy its logic and widen the prefix
+> (e.g. `/56`, `/48`) if your clients are delegated a larger block. The
+> deprecated `KeyByIP` / `KeyByRealIP` did this canonicalization for you;
+> `CanonicalizeIP` keeps it while making the trust model and prefix your choice.
 
 Pick the one `ClientIPFrom*` middleware that matches how requests reach you:
 
@@ -161,17 +145,17 @@ for the full picker.
 > you'll trip the limit after `requestLimit` total requests in dev. Make sure
 > exactly one `ClientIPFrom*` middleware runs before the limiter.
 
-`KeyFromContext` is generic over `func(context.Context) string`, so it isn't
-tied to chi — pass your own extractor for echo, fiber, gin, or custom
-middleware that stashes the client IP (or tenant/user ID) in the request
-context.
+A `KeyFunc` is just `func(r *http.Request) (string, error)`, so it isn't tied to
+chi — read the client IP (or tenant/user ID) from wherever echo, fiber, gin, or
+your own middleware stashes it on the request, and return it.
 
 ### Rate limit by IP and URL path (aka endpoint)
 ```go
+// clientIPKey is the KeyFunc from "Rate limit by client IP behind a proxy" above.
 r.Use(httprate.LimitBy(
 	10,             // requests
 	10*time.Second, // per duration
-	httprate.JoinKeys(httprate.KeyFromContext(middleware.GetClientIP), httprate.KeyByEndpoint),
+	httprate.JoinKeys(clientIPKey, httprate.KeyByEndpoint),
 ))
 ```
 
@@ -220,7 +204,7 @@ The default response is `HTTP 429` with `Too Many Requests` body. You can overri
 r.Use(httprate.LimitBy(
 	10,
 	time.Minute,
-	httprate.KeyFromContext(middleware.GetClientIP),
+	clientIPKey, // the KeyFunc from "Rate limit by client IP behind a proxy" above
 	httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error": "Rate-limited. Please, slow down."}`, http.StatusTooManyRequests)
 	}),
@@ -239,7 +223,7 @@ An error can be returned by:
 r.Use(httprate.LimitBy(
 	10,
 	time.Minute,
-	httprate.KeyFromContext(middleware.GetClientIP),
+	clientIPKey, // the KeyFunc from "Rate limit by client IP behind a proxy" above
 	httprate.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
 		http.Error(w, fmt.Sprintf(`{"error": %q}`, err), http.StatusPreconditionRequired)
 	}),
@@ -253,7 +237,7 @@ r.Use(httprate.LimitBy(
 r.Use(httprate.LimitBy(
 	1000,
 	time.Minute,
-	httprate.KeyFromContext(middleware.GetClientIP),
+	clientIPKey, // the KeyFunc from "Rate limit by client IP behind a proxy" above
 	httprate.WithResponseHeaders(httprate.ResponseHeaders{
 		Limit:      "X-RateLimit-Limit",
 		Remaining:  "X-RateLimit-Remaining",
@@ -270,7 +254,7 @@ r.Use(httprate.LimitBy(
 r.Use(httprate.LimitBy(
 	1000,
 	time.Minute,
-	httprate.KeyFromContext(middleware.GetClientIP),
+	clientIPKey, // the KeyFunc from "Rate limit by client IP behind a proxy" above
 	httprate.WithResponseHeaders(httprate.ResponseHeaders{}),
 ))
 ```

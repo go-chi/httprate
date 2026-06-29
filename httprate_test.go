@@ -2,7 +2,7 @@ package httprate
 
 import "testing"
 
-func Test_canonicalizeIP(t *testing.T) {
+func TestCanonicalizeIP(t *testing.T) {
 	tests := []struct {
 		name string
 		ip   string
@@ -51,8 +51,8 @@ func Test_canonicalizeIP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := canonicalizeIP(tt.ip); got != tt.want {
-				t.Errorf("canonicalizeIP() = %v, want %v", got, tt.want)
+			if got := CanonicalizeIP(tt.ip); got != tt.want {
+				t.Errorf("CanonicalizeIP() = %v, want %v", got, tt.want)
 			}
 		})
 	}

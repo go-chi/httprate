@@ -14,9 +14,9 @@ import (
 
 // Deprecated: Use LimitBy(requestLimit, windowLength, keyFn, options...) instead,
 // which makes the rate-limit key an explicit, required argument rather than an
-// optional WithKeyFuncs. Pass the key function directly (e.g.
-// KeyFromContext(middleware.GetClientIP) for a trusted client IP), or
-// httprate.Key("*") for a single global bucket. The remaining options
+// optional WithKeyFuncs. Pass the key function directly (e.g. a KeyFunc that
+// reads a trusted client IP — see CanonicalizeIP), or httprate.Key("*") for a
+// single global bucket. The remaining options
 // (WithLimitCounter, WithLimitHandler, WithResponseHeaders, ...) carry over
 // unchanged as LimitBy's trailing variadic.
 func Limit(requestLimit int, windowLength time.Duration, options ...Option) func(next http.Handler) http.Handler {
@@ -36,11 +36,13 @@ func LimitAll(requestLimit int, windowLength time.Duration) func(next http.Handl
 // the proxy's address, so every client sharing that proxy lands in one bucket —
 // usually the wrong key in production. State your trust model explicitly:
 // install one of chi's middleware.ClientIPFrom* middlewares (chi v5.3.0+) and
-// use LimitBy with KeyFromContext(middleware.GetClientIP):
+// key off the resolved IP (CanonicalizeIP buckets IPv6 by /64):
 //
 //	// Directly exposed to clients (LimitByIP's exact behavior, made explicit):
 //	r.Use(middleware.ClientIPFromRemoteAddr)
-//	r.Use(httprate.LimitBy(requestLimit, windowLength, httprate.KeyFromContext(middleware.GetClientIP)))
+//	r.Use(httprate.LimitBy(requestLimit, windowLength, func(r *http.Request) (string, error) {
+//		return httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
+//	}))
 func LimitByIP(requestLimit int, windowLength time.Duration) func(next http.Handler) http.Handler {
 	return LimitBy(requestLimit, windowLength, KeyByIP)
 }
@@ -49,10 +51,13 @@ func LimitByIP(requestLimit int, windowLength time.Duration) func(next http.Hand
 // remote attacker forge the rate-limit key — see GHSA-9g5q-2w5x-hmxf,
 // GHSA-rjr7-jggh-pgcp, GHSA-3fxj-6jh8-hvhx for the equivalent flaw in chi's
 // middleware.RealIP. Install one of chi's middleware.ClientIPFrom* middlewares
-// (chi v5.3.0+) and use LimitBy with KeyFromContext instead:
+// (chi v5.3.0+) and key off the resolved IP instead (CanonicalizeIP buckets
+// IPv6 by /64):
 //
 //	r.Use(middleware.ClientIPFromXFF("10.0.0.0/8"))
-//	r.Use(httprate.LimitBy(requestLimit, windowLength, httprate.KeyFromContext(middleware.GetClientIP)))
+//	r.Use(httprate.LimitBy(requestLimit, windowLength, func(r *http.Request) (string, error) {
+//		return httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
+//	}))
 func LimitByRealIP(requestLimit int, windowLength time.Duration) func(next http.Handler) http.Handler {
 	return LimitBy(requestLimit, windowLength, KeyByRealIP)
 }
@@ -66,10 +71,12 @@ func LimitByRealIP(requestLimit int, windowLength time.Duration) func(next http.
 // out by pinning the header to the victim's IP (exhausting their bucket).
 //
 // Install one of chi's middleware.ClientIPFrom* middlewares (chi v5.3.0+) and
-// use KeyFromContext(middleware.GetClientIP) instead:
+// key off the resolved IP instead (CanonicalizeIP buckets IPv6 by /64):
 //
 //	r.Use(middleware.ClientIPFromXFF("10.0.0.0/8"))
-//	r.Use(httprate.LimitBy(100, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)))
+//	r.Use(httprate.LimitBy(100, time.Minute, func(r *http.Request) (string, error) {
+//		return httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
+//	}))
 func KeyByRealIP(r *http.Request) (string, error) {
 	var ip string
 
@@ -91,15 +98,15 @@ func KeyByRealIP(r *http.Request) (string, error) {
 		}
 	}
 
-	return canonicalizeIP(ip), nil
+	return CanonicalizeIP(ip), nil
 }
 
 // Deprecated: WithKeyByRealIP installs the spoofable KeyByRealIP and lets a
 // remote attacker forge the rate-limit key — see GHSA-9g5q-2w5x-hmxf,
 // GHSA-rjr7-jggh-pgcp, GHSA-3fxj-6jh8-hvhx for the equivalent flaw in chi's
 // middleware.RealIP. Install one of chi's middleware.ClientIPFrom* middlewares
-// (chi v5.3.0+) and use LimitBy with KeyFromContext(middleware.GetClientIP)
-// instead.
+// (chi v5.3.0+) and key off the resolved IP with LimitBy instead (see
+// CanonicalizeIP).
 func WithKeyByRealIP() Option {
 	return WithKeyFuncs(KeyByRealIP)
 }
@@ -112,11 +119,14 @@ func WithKeyByRealIP() Option {
 // production, and there is no safe default IP source.
 //
 // State your trust model explicitly with one of chi's middleware.ClientIPFrom*
-// middlewares (chi v5.3.0+) and read it with KeyFromContext(middleware.GetClientIP):
+// middlewares (chi v5.3.0+) and key off the resolved IP (CanonicalizeIP buckets
+// IPv6 by /64):
 //
 //	// Directly exposed to clients (KeyByIP's exact behavior, made explicit):
 //	r.Use(middleware.ClientIPFromRemoteAddr)
-//	r.Use(httprate.LimitBy(100, time.Minute, httprate.KeyFromContext(middleware.GetClientIP)))
+//	r.Use(httprate.LimitBy(100, time.Minute, func(r *http.Request) (string, error) {
+//		return httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
+//	}))
 //
 //	// Behind a proxy: use ClientIPFromXFF / ClientIPFromHeader / ... instead.
 //
@@ -126,7 +136,7 @@ func KeyByIP(r *http.Request) (string, error) {
 	if err != nil {
 		ip = r.RemoteAddr
 	}
-	return canonicalizeIP(ip), nil
+	return CanonicalizeIP(ip), nil
 }
 
 // Deprecated: WithKeyByIP installs KeyByIP, which keys off r.RemoteAddr — the
@@ -134,42 +144,7 @@ func KeyByIP(r *http.Request) (string, error) {
 // the wrong key in production (see KeyByIP). It is not a spoofing issue, but
 // there is no safe default IP source. State your trust model explicitly:
 // install one of chi's middleware.ClientIPFrom* middlewares (chi v5.3.0+) and
-// use LimitBy with KeyFromContext(middleware.GetClientIP) instead.
+// key off the resolved IP with LimitBy instead (see CanonicalizeIP).
 func WithKeyByIP() Option {
 	return WithKeyFuncs(KeyByIP)
-}
-
-// canonicalizeIP returns a form of ip suitable for comparison to other IPs.
-// For IPv4 addresses, this is simply the whole string.
-// For IPv6 addresses, this is the /64 prefix.
-//
-// Only used by the deprecated KeyByIP / KeyByRealIP above. The supported
-// client-IP path (chi's middleware.ClientIPFrom* + KeyFromContext) canonicalizes
-// the IP upstream, so httprate no longer needs this for new code.
-func canonicalizeIP(ip string) string {
-	isIPv6 := false
-	// This is how net.ParseIP decides if an address is IPv6
-	// https://cs.opensource.google/go/go/+/refs/tags/go1.17.7:src/net/ip.go;l=704
-	for i := 0; !isIPv6 && i < len(ip); i++ {
-		switch ip[i] {
-		case '.':
-			// IPv4
-			return ip
-		case ':':
-			// IPv6
-			isIPv6 = true
-			break
-		}
-	}
-	if !isIPv6 {
-		// Not an IP address at all
-		return ip
-	}
-
-	ipv6 := net.ParseIP(ip)
-	if ipv6 == nil {
-		return ip
-	}
-
-	return ipv6.Mask(net.CIDRMask(64, 128)).String()
 }
