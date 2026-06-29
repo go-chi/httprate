@@ -3,12 +3,27 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
 )
+
+// clientIPKey mirrors the inline rate-limit key funcs in main.go: the trusted
+// client IP resolved by an upstream middleware.ClientIPFrom*, with IPv6 bucketed
+// to its /64. Shared here so each test exercises the exact key the example uses.
+func clientIPKey(r *http.Request) (string, error) {
+	ip := middleware.GetClientIPAddr(r.Context())
+	if !ip.IsValid() {
+		return "", nil
+	}
+	if ip.Is4() {
+		return ip.String(), nil
+	}
+	return netip.PrefixFrom(ip, 64).Masked().Addr().String(), nil // IPv6 → /64
+}
 
 // These are integration tests for the safe client-IP rate-limiting pattern:
 // chi's middleware.ClientIPFrom* resolves a trusted client IP into the request
@@ -23,7 +38,7 @@ import (
 func TestLimitByClientIP_RemoteAddr(t *testing.T) {
 	h := chain(
 		middleware.ClientIPFromRemoteAddr,
-		httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(clientIPKey)),
+		httprate.LimitBy(2, time.Minute, clientIPKey),
 		okHandler(),
 	)
 
@@ -43,7 +58,7 @@ func TestLimitByClientIP_RemoteAddr(t *testing.T) {
 func TestLimitByClientIP_IPv6Bucket(t *testing.T) {
 	h := chain(
 		middleware.ClientIPFromRemoteAddr,
-		httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(clientIPKey)),
+		httprate.LimitBy(2, time.Minute, clientIPKey),
 		okHandler(),
 	)
 
@@ -83,7 +98,7 @@ func TestLimitByClientIP_IPv6Bucket(t *testing.T) {
 func TestLimitByClientIP_SpoofedXFF(t *testing.T) {
 	h := chain(
 		middleware.ClientIPFromXFF("10.0.0.0/8"),
-		httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(clientIPKey)),
+		httprate.LimitBy(2, time.Minute, clientIPKey),
 		okHandler(),
 	)
 
@@ -117,7 +132,7 @@ func TestLimitByClientIP_SpoofedXFF(t *testing.T) {
 func TestLimitByClientIP_Misconfig(t *testing.T) {
 	h := chain(
 		// No middleware.ClientIPFrom* installed on purpose.
-		httprate.LimitBy(2, time.Minute, httprate.KeyFromContext(clientIPKey)),
+		httprate.LimitBy(2, time.Minute, clientIPKey),
 		okHandler(),
 	)
 
