@@ -75,6 +75,31 @@ type RateLimiter struct {
 // it increments the request count and returns false. This method does not send an HTTP response,
 // so the caller must handle the response themselves or use the RespondOnLimit() method instead.
 func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string) bool {
+	limited, err := l.checkLimit(w, r, key)
+	if err != nil {
+		l.onError(w, r, err)
+		return true
+	}
+	return limited
+}
+
+// RespondOnLimit checks the rate limit for the given key and updates the response headers accordingly.
+// If the limit is reached, it automatically sends an HTTP response and returns true, signaling the
+// caller to halt further request processing. If the limit is not reached, it increments the request
+// count and returns false, allowing the request to proceed.
+func (l *RateLimiter) RespondOnLimit(w http.ResponseWriter, r *http.Request, key string) bool {
+	limited, err := l.checkLimit(w, r, key)
+	if err != nil {
+		l.onError(w, r, err)
+		return true
+	}
+	if limited {
+		l.onRateLimited(w, r)
+	}
+	return limited
+}
+
+func (l *RateLimiter) checkLimit(w http.ResponseWriter, r *http.Request, key string) (bool, error) {
 	currentWindow := l.currentWindow(time.Now().UTC())
 	ctx := r.Context()
 
@@ -89,8 +114,7 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 	_, rateFloat, err := l.calculateRate(key, limit)
 	if err != nil {
 		l.mu.Unlock()
-		l.onError(w, r, err)
-		return true
+		return false, err
 	}
 	rate := int(math.Round(rateFloat))
 
@@ -104,31 +128,18 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 
 		l.mu.Unlock()
 		setHeader(w, l.headers.RetryAfter, strconv.Itoa(int(l.windowLength.Seconds()))) // RFC 6585
-		return true
+		return true, nil
 	}
 
 	err = l.limitCounter.IncrementBy(key, currentWindow, increment)
 	if err != nil {
 		l.mu.Unlock()
-		l.onError(w, r, err)
-		return true
+		return false, err
 	}
 	l.mu.Unlock()
 
 	setHeader(w, l.headers.Remaining, strconv.Itoa(limit-rate-increment))
-	return false
-}
-
-// RespondOnLimit checks the rate limit for the given key and updates the response headers accordingly.
-// If the limit is reached, it automatically sends an HTTP response and returns true, signaling the
-// caller to halt further request processing. If the limit is not reached, it increments the request
-// count and returns false, allowing the request to proceed.
-func (l *RateLimiter) RespondOnLimit(w http.ResponseWriter, r *http.Request, key string) bool {
-	onLimit := l.OnLimit(w, r, key)
-	if onLimit {
-		l.onRateLimited(w, r)
-	}
-	return onLimit
+	return false, nil
 }
 
 func (l *RateLimiter) Counter() LimitCounter {
