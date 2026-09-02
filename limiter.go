@@ -103,7 +103,12 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 		setHeader(w, l.headers.Remaining, strconv.Itoa(limit-rate))
 
 		l.mu.Unlock()
-		setHeader(w, l.headers.RetryAfter, strconv.Itoa(int(l.windowLength.Seconds()))) // RFC 6585
+		resetAt := currentWindow.Add(l.windowLength)
+		retryAfter := int(math.Ceil(time.Until(resetAt).Seconds()))
+		if retryAfter < 0 {
+			retryAfter = 0
+		}
+		setHeader(w, l.headers.RetryAfter, strconv.Itoa(retryAfter)) // RFC 6585
 		return true
 	}
 
