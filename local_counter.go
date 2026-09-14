@@ -1,6 +1,7 @@
 package httprate
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -20,7 +21,10 @@ func NewLocalLimitCounter(windowLength time.Duration) *localCounter {
 	}
 }
 
-var _ LimitCounter = (*localCounter)(nil)
+var (
+	_ LimitCounter        = (*localCounter)(nil)
+	_ LimitCounterContext = (*localCounter)(nil)
+)
 
 type localCounter struct {
 	windowLength     time.Duration
@@ -69,6 +73,18 @@ func (c *localCounter) Config(requestLimit int, windowLength time.Duration) {
 
 func (c *localCounter) Increment(key string, currentWindow time.Time) error {
 	return c.IncrementBy(key, currentWindow, 1)
+}
+
+func (c *localCounter) IncrementContext(ctx context.Context, key string, currentWindow time.Time) error {
+	return c.Increment(key, currentWindow)
+}
+
+func (c *localCounter) IncrementByContext(ctx context.Context, key string, currentWindow time.Time, amount int) error {
+	return c.IncrementBy(key, currentWindow, amount)
+}
+
+func (c *localCounter) GetContext(ctx context.Context, key string, currentWindow, previousWindow time.Time) (int, int, error) {
+	return c.Get(key, currentWindow, previousWindow)
 }
 
 func (c *localCounter) evict(currentWindow time.Time) {
