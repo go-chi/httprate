@@ -1,6 +1,7 @@
 package httprate
 
 import (
+	"context"
 	"math"
 	"net/http"
 	"strconv"
@@ -13,6 +14,20 @@ type LimitCounter interface {
 	Increment(key string, currentWindow time.Time) error
 	IncrementBy(key string, currentWindow time.Time, amount int) error
 	Get(key string, currentWindow, previousWindow time.Time) (int, int, error)
+}
+
+// LimitCounterContext is a LimitCounter whose I/O methods accept a context.
+// Network-backed counters (e.g. Redis) should implement it so request tracing
+// and deadlines can reach the backend.
+//
+// The limiter always calls these methods with context.WithoutCancel of the
+// request context: values (trace spans) propagate, but a client disconnect
+// does not skip the increment (which would let an attacker evade the limit).
+type LimitCounterContext interface {
+	LimitCounter
+	IncrementContext(ctx context.Context, key string, currentWindow time.Time) error
+	IncrementByContext(ctx context.Context, key string, currentWindow time.Time, amount int) error
+	GetContext(ctx context.Context, key string, currentWindow, previousWindow time.Time) (int, int, error)
 }
 
 func NewRateLimiter(requestLimit int, windowLength time.Duration, options ...Option) *RateLimiter {
@@ -86,7 +101,7 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 	setHeader(w, l.headers.Reset, strconv.FormatInt(currentWindow.Add(l.windowLength).Unix(), 10))
 
 	l.mu.Lock()
-	_, rateFloat, err := l.calculateRate(key, limit)
+	_, rateFloat, err := l.calculateRate(ctx, key, limit)
 	if err != nil {
 		l.mu.Unlock()
 		l.onError(w, r, err)
@@ -107,7 +122,7 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 		return true
 	}
 
-	err = l.limitCounter.IncrementBy(key, currentWindow, increment)
+	err = l.incrementBy(ctx, key, currentWindow, increment)
 	if err != nil {
 		l.mu.Unlock()
 		l.onError(w, r, err)
@@ -136,7 +151,37 @@ func (l *RateLimiter) Counter() LimitCounter {
 }
 
 func (l *RateLimiter) Status(key string) (bool, float64, error) {
-	return l.calculateRate(key, l.requestLimit)
+	return l.StatusContext(context.Background(), key)
+}
+
+// StatusContext is Status with an explicit context for LimitCounterContext backends.
+func (l *RateLimiter) StatusContext(ctx context.Context, key string) (bool, float64, error) {
+	return l.calculateRate(ctx, key, l.requestLimit)
+}
+
+func (l *RateLimiter) incrementBy(ctx context.Context, key string, currentWindow time.Time, amount int) error {
+	ctx = counterContext(ctx)
+	if c, ok := l.limitCounter.(LimitCounterContext); ok {
+		return c.IncrementByContext(ctx, key, currentWindow, amount)
+	}
+	return l.limitCounter.IncrementBy(key, currentWindow, amount)
+}
+
+func (l *RateLimiter) getCounts(ctx context.Context, key string, currentWindow, previousWindow time.Time) (int, int, error) {
+	ctx = counterContext(ctx)
+	if c, ok := l.limitCounter.(LimitCounterContext); ok {
+		return c.GetContext(ctx, key, currentWindow, previousWindow)
+	}
+	return l.limitCounter.Get(key, currentWindow, previousWindow)
+}
+
+// counterContext keeps request values (tracing) but drops cancellation so a
+// disconnect cannot skip the increment and evade the limit.
+func counterContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 func (l *RateLimiter) Handler(next http.Handler) http.Handler {
@@ -162,12 +207,12 @@ func (l *RateLimiter) currentWindow(t time.Time) time.Time {
 	return t.Add(-l.windowOffset).Truncate(l.windowLength).Add(l.windowOffset)
 }
 
-func (l *RateLimiter) calculateRate(key string, requestLimit int) (bool, float64, error) {
+func (l *RateLimiter) calculateRate(ctx context.Context, key string, requestLimit int) (bool, float64, error) {
 	now := time.Now().UTC()
 	currentWindow := l.currentWindow(now)
 	previousWindow := currentWindow.Add(-l.windowLength)
 
-	currCount, prevCount, err := l.limitCounter.Get(key, currentWindow, previousWindow)
+	currCount, prevCount, err := l.getCounts(ctx, key, currentWindow, previousWindow)
 	if err != nil {
 		return false, 0, err
 	}

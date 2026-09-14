@@ -27,6 +27,9 @@ The sliding window counter pattern is accurate, smooths traffic and offers a sim
 design to share a rate-limit among a cluster of servers. For example, if you'd like
 to use redis to coordinate a rate-limit across a group of microservices you just need
 to implement the `httprate.LimitCounter` interface to support an atomic increment and get.
+Network backends that need the request context (tracing, timeouts) should also implement
+`httprate.LimitCounterContext`; the limiter passes `context.WithoutCancel(r.Context())`
+so values propagate but a client disconnect cannot skip the increment.
 
 ## Backends
 
