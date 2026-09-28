@@ -75,7 +75,6 @@ type RateLimiter struct {
 // it increments the request count and returns false. This method does not send an HTTP response,
 // so the caller must handle the response themselves or use the RespondOnLimit() method instead.
 func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string) bool {
-	currentWindow := l.currentWindow(time.Now().UTC())
 	ctx := r.Context()
 
 	limit := l.requestLimit
@@ -83,10 +82,14 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 		limit = val
 	}
 	setHeader(w, l.headers.Limit, strconv.Itoa(limit))
-	setHeader(w, l.headers.Reset, strconv.FormatInt(currentWindow.Add(l.windowLength).Unix(), 10))
 
 	l.mu.Lock()
-	_, rateFloat, err := l.calculateRate(key, limit)
+	// A request may wait for the mutex across a window boundary. Sample the
+	// clock after acquiring it and use the same window for reading and writing.
+	now := time.Now().UTC()
+	currentWindow := l.currentWindow(now)
+	setHeader(w, l.headers.Reset, strconv.FormatInt(currentWindow.Add(l.windowLength).Unix(), 10))
+	_, rateFloat, err := l.calculateRateAt(key, limit, now)
 	if err != nil {
 		l.mu.Unlock()
 		l.onError(w, r, err)
@@ -163,7 +166,10 @@ func (l *RateLimiter) currentWindow(t time.Time) time.Time {
 }
 
 func (l *RateLimiter) calculateRate(key string, requestLimit int) (bool, float64, error) {
-	now := time.Now().UTC()
+	return l.calculateRateAt(key, requestLimit, time.Now().UTC())
+}
+
+func (l *RateLimiter) calculateRateAt(key string, requestLimit int, now time.Time) (bool, float64, error) {
 	currentWindow := l.currentWindow(now)
 	previousWindow := currentWindow.Add(-l.windowLength)
 
