@@ -270,6 +270,40 @@ func TestCustomResponseHeaders(t *testing.T) {
 	}
 }
 
+func TestRetryAfterIsRemainingWindow(t *testing.T) {
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	router := httprate.Limit(1, time.Minute)(h)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("first request: %d", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 429 {
+		t.Fatalf("second request: %d", rec.Code)
+	}
+
+	retryAfter, err := strconv.Atoi(rec.Header().Get("Retry-After"))
+	if err != nil {
+		t.Fatalf("Retry-After: %v", err)
+	}
+	if retryAfter <= 0 || retryAfter > 60 {
+		t.Fatalf("Retry-After=%d, want (0, 60]", retryAfter)
+	}
+	resetUnix, err := strconv.ParseInt(rec.Header().Get("X-RateLimit-Reset"), 10, 64)
+	if err != nil {
+		t.Fatalf("X-RateLimit-Reset: %v", err)
+	}
+	untilReset := int(time.Until(time.Unix(resetUnix, 0)).Seconds())
+	if retryAfter < untilReset || retryAfter > untilReset+1 {
+		t.Fatalf("Retry-After=%d not aligned with reset in %ds", retryAfter, untilReset)
+	}
+}
+
 func TestLimitHandler(t *testing.T) {
 	type test struct {
 		name          string
