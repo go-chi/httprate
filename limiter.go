@@ -100,7 +100,7 @@ func (l *RateLimiter) OnLimit(w http.ResponseWriter, r *http.Request, key string
 	}
 
 	if rate+increment > limit {
-		setHeader(w, l.headers.Remaining, strconv.Itoa(limit-rate))
+		setHeader(w, l.headers.Remaining, strconv.Itoa(max(limit-rate, 0)))
 
 		l.mu.Unlock()
 		setHeader(w, l.headers.RetryAfter, strconv.Itoa(int(l.windowLength.Seconds()))) // RFC 6585
