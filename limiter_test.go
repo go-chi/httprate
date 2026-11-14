@@ -190,6 +190,27 @@ func TestResponseHeaders(t *testing.T) {
 	}
 }
 
+func TestRemainingHeaderWithLowerRequestLimit(t *testing.T) {
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	router := httprate.LimitAll(5, time.Minute)(h)
+
+	for i := 0; i < 3; i++ {
+		router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req = req.WithContext(httprate.WithRequestLimit(req.Context(), 1))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	if respCode := recorder.Result().StatusCode; respCode != 429 {
+		t.Errorf("resp.StatusCode = %v, want 429", respCode)
+	}
+	if remaining := recorder.Result().Header.Get("X-RateLimit-Remaining"); remaining != "0" {
+		t.Errorf("X-RateLimit-Remaining = %v, want 0", remaining)
+	}
+}
+
 func TestCustomResponseHeaders(t *testing.T) {
 	type test struct {
 		name    string
